@@ -1,14 +1,17 @@
+
+import 'package:disasteraid_pk/core/api/api_client.dart';
+import 'package:disasteraid_pk/core/auth/auth_provider.dart';
+import 'package:disasteraid_pk/features/admin/admin_dashboard.dart';
+import 'package:disasteraid_pk/features/auth/login_screen.dart';
+import 'package:disasteraid_pk/features/auth/register_screen.dart';
+import 'package:disasteraid_pk/features/campaigns/screens/campaign_create_screen.dart';
+import 'package:disasteraid_pk/features/campaigns/screens/campaign_list_screen.dart';
+import 'package:disasteraid_pk/features/ngo/ngo_dashboard.dart';
+import 'package:disasteraid_pk/features/ngo/ngo_onboard_screen.dart';
+import 'package:disasteraid_pk/features/volunteers/screens/volunteer_tasks_screen.dart';
 import 'package:flutter/material.dart';
-import 'core/api/api_client.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
-import 'core/auth/auth_provider.dart';
-import 'features/auth/login_screen.dart';
-import 'features/auth/register_screen.dart';
-import 'features/ngo/ngo_onboard_screen.dart';
-import 'features/admin/admin_dashboard.dart';
-import 'features/campaigns/screens/campaign_list_screen.dart';
-import 'features/campaigns/screens/campaign_create_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,8 +29,12 @@ class MyApp extends StatelessWidget {
         builder: (context, auth, _) {
           return MaterialApp(
             title: 'DisasterAid PK',
-            theme: ThemeData(colorScheme: ColorScheme.fromSeed(seedColor: Colors.green), useMaterial3: true),
-            home:!auth.isAuthenticated? const LoginScreen() : const AppShell(),
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+              useMaterial3: true,
+            ),
+            debugShowCheckedModeBanner: false,
+            home: !auth.isAuthenticated? const LoginScreen() : const AppShell(),
             routes: {
               '/login': (_) => const LoginScreen(),
               '/register': (_) => const RegisterScreen(),
@@ -81,14 +88,22 @@ class _AppShellState extends State<AppShell> {
 
     if (_loadingStatus) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-    if (role == 'admin') return const AdminDashboard();
-    if (role == 'ngo') {
-      if (_ngoStatus == 'APPROVED') return const NgoDashboard();
-      return NgoStatusScreen(status: _ngoStatus, onRefresh: _fetchNgoStatus);
+    switch (role) {
+      case 'admin':
+        return const AdminDashboard();
+      case 'ngo':
+        if (_ngoStatus == 'APPROVED') return const NgoDashboard();
+        return NgoStatusScreen(status: _ngoStatus, onRefresh: _fetchNgoStatus);
+      case 'donor':
+        return const CampaignListScreen();
+      case 'volunteer':
+        return const VolunteerTasksScreen();
+      case 'beneficiary':
+        // Beneficiary needs to pick a campaign first, so show campaign list
+        return const CampaignListScreen();
+      default:
+        return const LoginScreen();
     }
-    if (role == 'donor') return const CampaignListScreen();
-
-    return const LoginScreen();
   }
 }
 
@@ -134,6 +149,8 @@ class NgoStatusScreen extends StatelessWidget {
                 const Icon(Icons.cancel, size: 80, color: Colors.red),
                 const SizedBox(height: 24),
                 const Text('Application Rejected', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                const Text('Please resubmit with correct documents', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
                 const SizedBox(height: 32),
                 FilledButton.icon(
                   onPressed: () => Navigator.pushNamed(context, '/ngo/onboard').then((_) => onRefresh()),
@@ -144,25 +161,6 @@ class NgoStatusScreen extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class NgoDashboard extends StatelessWidget {
-  const NgoDashboard({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('NGO Dashboard'),
-        actions: [IconButton(icon: const Icon(Icons.logout), onPressed: () => context.read<AuthProvider>().logout())],
-      ),
-      body: const Center(child: Text('Module 3: Create Campaigns')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.pushNamed(context, '/campaign/create'),
-        icon: const Icon(Icons.add),
-        label: const Text('Create Campaign'),
       ),
     );
   }

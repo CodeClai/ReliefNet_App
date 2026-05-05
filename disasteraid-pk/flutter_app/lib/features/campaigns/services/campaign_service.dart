@@ -3,27 +3,27 @@ import '../../../core/api/api_client.dart';
 import '../models/campaign.dart';
 
 class CampaignService {
-  final _dio = ApiClient().dio;
+  final _api = ApiClient();
 
   Future<List<Campaign>> getAllCampaigns({String? category}) async {
-    final res = await _dio.get('/campaigns', queryParameters: {
+    final res = await _api.dio.get('/campaigns', queryParameters: {
       if (category!= null) 'category': category,
     });
     return (res.data['data'] as List).map((e) => Campaign.fromJson(e)).toList();
   }
 
   Future<List<Campaign>> getMyCampaigns() async {
-    final res = await _dio.get('/campaigns/my');
+    final res = await _api.dio.get('/ngos/campaigns');
     return (res.data['data'] as List).map((e) => Campaign.fromJson(e)).toList();
   }
 
-  Future<Campaign> createCampaign(Map<String, dynamic> data) async {
-    final res = await _dio.post('/campaigns', data: data);
+  Future<Campaign> createCampaign(FormData formData) async {
+    final res = await _api.dio.post('/campaigns', data: formData);
     return Campaign.fromJson(res.data['data']);
   }
 
   Future<Campaign> getCampaign(int id) async {
-    final res = await _dio.get('/campaigns/$id');
+    final res = await _api.dio.get('/campaigns/$id');
     return Campaign.fromJson(res.data['data']);
   }
 }

@@ -29,18 +29,38 @@ class Campaign {
 
   factory Campaign.fromJson(Map<String, dynamic> json) {
     return Campaign(
-      id: json['id'],
-      ngoId: json['ngo_id'],
-      title: json['title'],
+      id: json['id'] is int? json['id'] : int.parse(json['id'].toString()),
+      ngoId: json['ngo_id'] is int? json['ngo_id'] : int.parse(json['ngo_id'].toString()),
+      title: json['title']?? '',
       description: json['description']?? '',
       category: json['category']?? 'general',
-      targetAmount: double.parse(json['target_amount'].toString()),
-      raisedAmount: double.parse(json['raised_amount'].toString()),
+      targetAmount: double.tryParse(json['target_amount']?.toString()?? '0')?? 0.0,
+      raisedAmount: double.tryParse(json['raised_amount']?.toString()?? '0')?? 0.0,
       imageUrl: json['image_url'],
       location: json['location'],
-      status: json['status'],
+      status: json['status']?? 'ACTIVE',
       orgName: json['org_name'],
       createdAt: DateTime.parse(json['created_at']),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'ngo_id': ngoId,
+      'title': title,
+      'description': description,
+      'category': category,
+      'target_amount': targetAmount,
+      'raised_amount': raisedAmount,
+      'image_url': imageUrl,
+      'location': location,
+      'status': status,
+      'org_name': orgName,
+      'created_at': createdAt.toIso8601String(),
+    };
+  }
+
+  double get progress => targetAmount > 0? (raisedAmount / targetAmount).clamp(0.0, 1.0) : 0.0;
+  int get percentRaised => (progress * 100).toInt();
 }

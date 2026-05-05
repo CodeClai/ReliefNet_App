@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:dio/dio.dart';
@@ -50,11 +49,6 @@ for (var file in _docs) {
     await MultipartFile.fromFile(file.path!, filename: file.name),
   ));
 }
-//TODO  need to remvoe this 
-print("=== FORM DATA DEBUG ===");
-print(_orgName.text);
-print(_regNum.text);
-print(_docs.map((e) => e.path).toList());
       await api.dio.post('/ngos/onboard', data: formData);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Submitted for approval')));

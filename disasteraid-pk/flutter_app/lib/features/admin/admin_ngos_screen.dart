@@ -12,13 +12,14 @@ class AdminNgosScreen extends StatefulWidget {
 class _AdminNgosScreenState extends State<AdminNgosScreen> {
   List _ngos = [];
   bool _loading = true;
+  final _api = ApiClient();
 
   @override
   void initState() { super.initState(); _fetchNgos(); }
 
   Future<void> _fetchNgos() async {
     try {
-      final res = await ApiClient().dio.get('/admin/ngos/pending');
+      final res = await _api.dio.get('/admin/ngos/pending');
       setState(() { _ngos = res.data['data']; _loading = false; });
     } catch (e) {
       setState(() => _loading = false);
@@ -26,7 +27,7 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
   }
 
   Future<void> _approve(int id) async {
-    await ApiClient().dio.post('/admin/ngos/$id/approve');
+    await _api.dio.post('/admin/ngos/$id/approve');
     _fetchNgos();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('NGO Approved')));
   }
@@ -34,7 +35,7 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
   Future<void> _reject(int id) async {
     final reason = await _showRejectDialog();
     if (reason!= null) {
-      await ApiClient().dio.post('/admin/ngos/$id/reject', data: {'reason': reason});
+      await _api.dio.post('/admin/ngos/$id/reject', data: {'reason': reason});
       _fetchNgos();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('NGO Rejected')));
     }
@@ -91,8 +92,8 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
                       const SizedBox(height: 16),
                       Text('Documents (${docs.length})', style: const TextStyle(fontWeight: FontWeight.w600)),
                       const SizedBox(height: 8),
-                     ...docs.map((url) => url.toLowerCase().contains('.pdf')
-                       ? ListTile(
+                   ...docs.map((url) => url.toLowerCase().contains('.pdf')
+                     ? ListTile(
                             dense: true,
                             leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
                             title: Text(url.split('/').last, style: const TextStyle(fontSize: 12)),

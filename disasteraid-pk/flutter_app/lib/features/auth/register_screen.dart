@@ -72,7 +72,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: 24),
             Text('I am a', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
-          ..._roles.entries.map((entry) => Card(
+         ..._roles.entries.map((entry) => Card(
               margin: const EdgeInsets.only(bottom: 8),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: _role == entry.key? Theme.of(context).colorScheme.primary : Colors.grey[300]!, width: _role == entry.key? 2 : 1)),
               child: RadioListTile<String>(

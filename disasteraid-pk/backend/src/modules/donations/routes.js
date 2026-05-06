@@ -1,31 +1,35 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../../config/db');
+const db = require('../../config/db'); // db is now the pool
 const auth = require('../../middleware/auth');
 const Joi = require('joi');
 
 const donationSchema = Joi.object({
-  campaign_id: Joi.number().integer().required(),
-  amount: Joi.number().positive().min(10).max(1000000).required(),
-  payment_method: Joi.string().valid('MOCK', 'STRIPE', 'JAZZCASH', 'EASYPAISA').default('MOCK'),
+  campaign_id: Joi.number().required(),
+  amount: Joi.number().min(100).required(),
+  donor_name: Joi.string().required(),
+  donor_email: Joi.string().email().allow(null, ''),
+  payment_method: Joi.string().uppercase().valid('MOCK', 'STRIPE', 'JAZZCASH', 'EASYPAISA').required(),
+  transaction_id: Joi.string().required()
 });
 
 // POST /api/donations - Create donation + update wallet
-router.post('/', auth('donor'), async (req, res, next) => {
+router.post('/', auth(), async (req, res, next) => { // Changed from auth('donor') to auth() - any logged user can donate
   const { error, value } = donationSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
-  const { campaign_id, amount, payment_method } = value;
-  const client = await db.pool.connect();
+  const { campaign_id, amount, payment_method, donor_name, donor_email, transaction_id } = value;
+  const client = await db.connect(); // Now works
 
   try {
     await client.query('BEGIN');
 
     // 1. Get campaign + NGO + check status
     const campaign = await client.query(`
-      SELECT c.*, n.id as ngo_profile_id, n.status as ngo_status
+      SELECT c.*, n.id as ngo_profile_id, n.status as ngo_status, n.org_name, u.email as ngo_email
       FROM campaigns c
       JOIN ngo_profiles n ON c.ngo_id = n.id
+      JOIN users u ON n.user_id = u.id
       WHERE c.id = $1
     `, [campaign_id]);
 
@@ -38,9 +42,9 @@ router.post('/', auth('donor'), async (req, res, next) => {
 
     // 2. Create donation record
     const donation = await client.query(
-      `INSERT INTO donations (user_id, campaign_id, amount, payment_method, status, transaction_ref)
-       VALUES ($1, $2, $3, $4, 'completed', $5) RETURNING *`,
-      [req.user.id, campaign_id, amount, payment_method, `TXN_${Date.now()}`]
+      `INSERT INTO donations (user_id, campaign_id, amount, payment_method, status, transaction_ref, donor_name, donor_email)
+       VALUES ($1, $2, $3, $4, 'completed', $5, $6, $7) RETURNING *`,
+      [req.user.id, campaign_id, amount, payment_method, transaction_id, donor_name, donor_email]
     );
 
     // 3. Update campaign raised_amount + check if target hit
@@ -74,7 +78,7 @@ router.post('/', auth('donor'), async (req, res, next) => {
     res.json({
       success: true,
       data: {
-       ...donation.rows[0],
+      ...donation.rows[0],
         campaign: {
           title: updatedCampaign.rows[0].title,
           raised_amount: updatedCampaign.rows[0].raised_amount,
@@ -91,8 +95,8 @@ router.post('/', auth('donor'), async (req, res, next) => {
   }
 });
 
-// GET /api/donations/my - Donor's donation history with campaign details
-router.get('/my', auth('donor'), async (req, res, next) => {
+// GET /api/donations/my - Donor's donation history
+router.get('/my', auth(), async (req, res, next) => {
   try {
     const result = await db.query(`
       SELECT d.*, c.title as campaign_title, c.image_url, c.status as campaign_status,
@@ -112,12 +116,13 @@ router.get('/my', auth('donor'), async (req, res, next) => {
 router.get('/receipt/:id', auth(), async (req, res, next) => {
   try {
     const result = await db.query(`
-      SELECT d.*, c.title, c.description, n.org_name, n.email as ngo_email,
-             u.name as donor_name, u.email as donor_email
+      SELECT d.*, c.title, c.description, n.org_name, u.email as ngo_email,
+             du.name as donor_name, du.email as donor_email
       FROM donations d
       JOIN campaigns c ON d.campaign_id = c.id
       JOIN ngo_profiles n ON c.ngo_id = n.id
-      JOIN users u ON d.user_id = u.id
+      JOIN users du ON d.user_id = du.id
+      JOIN users u ON n.user_id = u.id
       WHERE d.id = $1 AND (d.user_id = $2 OR $3 = 'admin')
     `, [req.params.id, req.user.id, req.user.role]);
 

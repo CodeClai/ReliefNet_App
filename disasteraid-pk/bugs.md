@@ -77,3 +77,22 @@
 **Fix:** Changed Flutter dropdown values to uppercase MOCK, JAZZCASH, EASYPAISA, STRIPE. Set default to MOCK
 **File:** campaign_detail_screen.dart
 **Commit:** [add hash after commit] f4096e9
+
+
+## #6-9 - Donation flow fixes
+**Status:** Fixed & Tested
+**Commit:** 914eb4f
+**Errors:** 
+- 400 is_anonymous not defined
+- 500 Maximum call stack size exceeded  
+- Flutter Dropdown assertion failed
+**Root Causes:**
+1. Missing is_anonymous in Joi schema + DB
+2. db.js infinite recursion from module.exports override
+3. Flutter dropdown value case mismatch with backend
+**Fixes:**
+1. Added is_anonymous to schema, SQL migration, Flutter request
+2. Fixed db.js to export pool directly
+3. Changed Flutter default + dropdown items to uppercase
+**Files:** backend/src/config/db.js, backend/src/modules/donations/routes.js, campaign_detail_screen.dart
+**Test Result:** Login → Campaign Detail → Donate 500 PKR → Success → Raised amount updated

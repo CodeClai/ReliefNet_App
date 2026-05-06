@@ -105,7 +105,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
-            childAspectRatio: 1.5,
+            childAspectRatio: 1.4, // FIXED: Adjusted to prevent overflow
             children: [
               _buildStatCard('Total Users', users['total']?.toString()?? '0', Icons.people, Colors.blue),
               _buildStatCard('Donors', users['donors']?.toString()?? '0', Icons.favorite, Colors.pink),
@@ -116,10 +116,20 @@ class _AdminDashboardState extends State<AdminDashboard> {
           const Divider(height: 32),
           Text('Campaigns & Donations', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          _buildStatCard('Active Campaigns', '${campaigns['active']?? 0}/${campaigns['total']?? 0}', Icons.campaign, Colors.teal),
-          _buildStatCard('Total Raised', 'PKR ${_formatNumber(donations['total_amount'])}', Icons.volunteer_activism, Colors.purple),
-          _buildStatCard('Total Target', 'PKR ${_formatNumber(campaigns['total_target'])}', Icons.flag, Colors.indigo),
-          _buildStatCard('Donations Count', donations['total_donations']?.toString()?? '0', Icons.receipt_long, Colors.brown),
+          GridView.count( // FIXED: Wrapped in GridView for consistent layout
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.4,
+            children: [
+              _buildStatCard('Active Campaigns', '${campaigns['active']?? 0}/${campaigns['total']?? 0}', Icons.campaign, Colors.teal),
+              _buildStatCard('Total Raised', 'PKR ${_formatNumber(donations['total_amount'])}', Icons.volunteer_activism, Colors.purple),
+              _buildStatCard('Total Target', 'PKR ${_formatNumber(campaigns['total_target'])}', Icons.flag, Colors.indigo),
+              _buildStatCard('Donations Count', donations['total_donations']?.toString()?? '0', Icons.receipt_long, Colors.brown),
+            ],
+          ),
         ],
       ),
     );
@@ -133,24 +143,38 @@ class _AdminDashboardState extends State<AdminDashboard> {
     return n.toInt().toString();
   }
 
+  // FIXED: Removed all Spacer widgets
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Card(
+      elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min, // shrink-wrap
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                CircleAvatar(backgroundColor: color.withOpacity(0.1), radius: 16, child: Icon(icon, color: color, size: 18)),
-                const Spacer(),
-              ],
+            // Icon row - no Spacer needed
+            CircleAvatar(
+              backgroundColor: color.withOpacity(0.1),
+              radius: 16,
+              child: Icon(icon, color: color, size: 18)
             ),
-            const Spacer(),
-            Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            const SizedBox(height: 12), // Fixed space instead of Spacer
+            // Title
+            Text(
+              title,
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             const SizedBox(height: 4),
-            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            // Value
+            Text(
+              value,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ],
         ),
       ),

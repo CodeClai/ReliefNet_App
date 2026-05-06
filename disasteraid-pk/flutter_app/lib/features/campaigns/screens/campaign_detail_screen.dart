@@ -241,7 +241,9 @@ class _DonateSheetState extends State<DonateSheet> {
         'donor_email': _emailController.text.trim().isEmpty? null : _emailController.text.trim(),
         'payment_method': _paymentMethod,
         'transaction_id': 'MOCK_${DateTime.now().millisecondsSinceEpoch}', // Replace with real payment gateway
+        'is_anonymous': false,
       });
+
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -334,7 +336,7 @@ class _DonateSheetState extends State<DonateSheet> {
                 labelText: 'Payment Method',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              items: ['jazzcash', 'easypaisa', 'bank_transfer', 'stripe']
+              items: ['MOCK', 'JAZZCASH', 'EASYPAISA', 'STRIPE'] // UPPERCASE
               .map((e) => DropdownMenuItem(value: e, child: Text(e.toUpperCase())))
                  .toList(),
               onChanged: (v) => setState(() => _paymentMethod = v!),

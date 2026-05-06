@@ -39,4 +39,12 @@
 **Error:** 400 Bad Request - column "donor_name" of relation "donations" does not exist
 **Root Cause:** donations table schema missing donor_name, donor_email, transaction_ref columns
 **Fix:** ALTER TABLE donations ADD COLUMN donor_name VARCHAR(255), donor_email VARCHAR(255), transaction_ref VARCHAR(255)
-**File:** Database migration
+**File:** Database migration   0c9e800
+
+
+## #6 - is_anonymous column mismatch + payment_method case
+**Status:** Fixed
+**Error:** 400 Bad Request - "is_anonymous is not defined"
+**Root Cause:** Backend schema missing is_anonymous field, Flutter sending lowercase payment_method
+**Fix:** Added is_anonymous to Joi schema and INSERT. Changed Flutter to send uppercase payment methods
+**Files:** backend/src/modules/donations/routes.js, campaign_detail_screen.dart

@@ -21,7 +21,7 @@ router.post('/', auth(), async (req, res, next) => { // Changed from auth('donor
   const { error, value } = donationSchema.validate(req.body);
   if (error) return res.status(400).json({ error: error.details[0].message });
 
-  const { campaign_id, amount, payment_method, donor_name, donor_email, transaction_id } = value;
+  const { campaign_id, amount, payment_method, donor_name, donor_email, transaction_id ,is_anonymous} = value;
   const client = await db.connect(); // Now works
 
   try {

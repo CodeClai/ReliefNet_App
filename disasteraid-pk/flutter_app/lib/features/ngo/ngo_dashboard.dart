@@ -2,7 +2,7 @@ import 'package:disasteraid_pk/features/campaigns/models/campaign.dart';
 import 'package:disasteraid_pk/features/campaigns/screens/campaign_create_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/auth/auth_provider.dart';
+import '../../core/auth/auth_provider.dart'; // Fixed path
 import '../../core/api/api_client.dart';
 
 class NgoDashboard extends StatefulWidget {
@@ -14,6 +14,7 @@ class NgoDashboard extends StatefulWidget {
 class _NgoDashboardState extends State<NgoDashboard> {
   final api = ApiClient();
   Map<String, dynamic>? wallet;
+  Map<String, dynamic>? ngoProfile;
   List<Campaign> campaigns = [];
   bool loading = true;
   String? error;
@@ -27,11 +28,18 @@ class _NgoDashboardState extends State<NgoDashboard> {
   Future<void> _loadData() async {
     setState(() { loading = true; error = null; });
     try {
+      // Get NGO profile first to get ID
+      final ngoRes = await api.dio.get('/ngos/me');
+      final ngo = ngoRes.data['data'];
+      final ngoId = ngo['id'];
+
       final results = await Future.wait([
         api.dio.get('/ngos/wallet'),
-        api.dio.get('/ngos/campaigns'),
+        api.dio.get('/campaigns', queryParameters: {'ngo_id': ngoId}), // FIXED: use /campaigns not /ngos/campaigns
       ]);
+
       setState(() {
+        ngoProfile = ngo;
         wallet = results[0].data['data'];
         campaigns = (results[1].data['data'] as List)
            .map((e) => Campaign.fromJson(e))
@@ -59,12 +67,19 @@ class _NgoDashboardState extends State<NgoDashboard> {
       body: RefreshIndicator(
         onRefresh: _loadData,
         child: loading
-         ? const Center(child: CircularProgressIndicator())
-          : error!= null
-          ? Center(child: Text('Error: $error'))
-            : campaigns.isEmpty
-            ? _buildEmptyState()
-              : _buildDashboard(),
+           ? const Center(child: CircularProgressIndicator())
+            : error!= null
+               ? Center(child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('Error: $error'),
+                      const SizedBox(height: 16),
+                      FilledButton(onPressed: _loadData, child: const Text('Retry'))
+                    ],
+                  ))
+                : campaigns.isEmpty
+                   ? _buildEmptyState()
+                    : _buildDashboard(),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
@@ -121,7 +136,6 @@ class _NgoDashboardState extends State<NgoDashboard> {
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: balance < 100? null : () {
-                    // TODO: Navigate to withdrawal screen
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Withdrawal screen coming next')),
                     );
@@ -144,7 +158,7 @@ class _NgoDashboardState extends State<NgoDashboard> {
         ),
         const SizedBox(height: 12),
         // Campaign List
-      ...campaigns.map((c) => Card(
+       ...campaigns.map((c) => Card(
           margin: const EdgeInsets.only(bottom: 12),
           child: ListTile(
             title: Text(c.title, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -169,9 +183,7 @@ class _NgoDashboardState extends State<NgoDashboard> {
                 ),
               ],
             ),
-            onTap: () {
-              // TODO: Navigate to campaign detail
-            },
+            onTap: () {},
           ),
         )),
       ],

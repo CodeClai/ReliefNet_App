@@ -4,30 +4,41 @@ const db = require('../../config/db');
 const auth = require('../../middleware/auth');
 
 // GET /api/admin/stats - Dashboard stats
+// GET /api/admin/stats - Dashboard stats
 router.get('/stats', auth('admin'), async (req, res, next) => {
   try {
     const [users, ngos, campaigns, donations] = await Promise.all([
-      db.query(`SELECT COUNT(*) as total,
-        COUNT(*) FILTER (WHERE role='donor') as donors,
-        COUNT(*) FILTER (WHERE role='ngo') as ngos,
-        COUNT(*) FILTER (WHERE role='volunteer') as volunteers,
-        COUNT(*) FILTER (WHERE role='beneficiary') as beneficiaries
-        FROM users`),
-      db.query(`SELECT
-        COUNT(*) FILTER (WHERE status='PENDING') as pending,
-        COUNT(*) FILTER (WHERE status='APPROVED') as approved,
-        COUNT(*) FILTER (WHERE status='REJECTED') as rejected
-        FROM ngo_profiles`),
-      db.query(`SELECT
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE status='ACTIVE') as active,
-        COALESCE(SUM(target_amount), 0) as total_target,
-        COALESCE(SUM(raised_amount), 0) as total_raised
-        FROM campaigns`),
-      db.query(`SELECT
-        COUNT(*) as total_donations,
-        COALESCE(SUM(amount), 0) as total_amount
-        FROM donations WHERE status='completed'`)
+      db.query(`
+        SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE r.name = 'donor') as donors,
+          COUNT(*) FILTER (WHERE r.name = 'ngo') as ngos,
+          COUNT(*) FILTER (WHERE r.name = 'volunteer') as volunteers,
+          COUNT(*) FILTER (WHERE r.name = 'beneficiary') as beneficiaries
+        FROM users u
+        JOIN roles r ON u.role_id = r.id
+      `),
+      db.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status='PENDING') as pending,
+          COUNT(*) FILTER (WHERE status='APPROVED') as approved,
+          COUNT(*) FILTER (WHERE status='REJECTED') as rejected
+        FROM ngo_profiles
+      `),
+      db.query(`
+        SELECT
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE status='ACTIVE') as active,
+          COALESCE(SUM(target_amount), 0) as total_target,
+          COALESCE(SUM(raised_amount), 0) as total_raised
+        FROM campaigns
+      `),
+      db.query(`
+        SELECT
+          COUNT(*) as total_donations,
+          COALESCE(SUM(amount), 0) as total_amount
+        FROM donations WHERE status='completed'
+      `)
     ]);
 
     res.json({

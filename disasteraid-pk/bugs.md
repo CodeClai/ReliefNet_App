@@ -96,3 +96,23 @@
 3. Changed Flutter default + dropdown items to uppercase
 **Files:** backend/src/config/db.js, backend/src/modules/donations/routes.js, campaign_detail_screen.dart
 **Test Result:** Login → Campaign Detail → Donate 500 PKR → Success → Raised amount updated
+
+
+## #11 - Admin NGOs endpoint 404
+**Status:** Fixed
+**Date:** 2026-05-06
+**Error:** GET /api/admin/ngos?status=PENDING 404 Route not found
+**Root Cause:** Backend route not implemented. Only /admin/stats existed.
+**Fix:** Created admin/routes.js with GET /ngos, PATCH /ngos/:id/approve, PATCH /ngos/:id/reject
+**Files:** backend/src/modules/admin/routes.js, backend/src/app.js
+**Test:** Click NGOs tab → loads 2 pending NGOs from dashboard stats
+
+
+## #11 - Admin NGOs endpoint 404
+**Status:** Fixed
+**Date:** 2026-05-06
+**Error:** GET /api/admin/ngos?status=PENDING 404 Route not found
+**Root Cause:** Flutter requests query param `?status=PENDING` but backend only had `/ngos/pending` and `/ngos/all` routes. Missing flexible filter route.
+**Fix:** Added GET /api/admin/ngos route with optional status query param. Supports PENDING, APPROVED, REJECTED filters.
+**Files:** backend/src/modules/admin/routes.js:46-70
+**Test Result:** NGOs tab loads 2 pending NGOs. Filter works for all statuses.

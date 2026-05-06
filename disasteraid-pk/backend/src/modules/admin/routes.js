@@ -52,6 +52,39 @@ router.get('/stats', auth('admin'), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/admin/ngos - list NGOs with optional status filter
+router.get('/ngos', auth('admin'), async (req, res, next) => {
+  try {
+    const { status } = req.query;
+    let query = `
+      SELECT 
+        n.*, 
+        u.email, 
+        u.phone, 
+        u.name,
+        w.balance,
+        w.total_received,
+        w.total_withdrawn
+      FROM ngo_profiles n
+      JOIN users u ON n.user_id = u.id
+      LEFT JOIN ngo_wallets w ON w.ngo_id = n.id
+      WHERE 1=1
+    `;
+    const params = [];
+    
+    if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status.toUpperCase())) {
+      params.push(status.toUpperCase());
+      query += ` AND n.status = $${params.length}`;
+    }
+    
+    query += ` ORDER BY n.created_at DESC`;
+    
+    const result = await db.query(query, params);
+    res.json({ data: result.rows });
+  } catch (e) { next(e); }
+});
+
+
 // GET /api/admin/ngos/pending
 router.get('/ngos/pending', auth('admin'), async (req, res, next) => {
   try {

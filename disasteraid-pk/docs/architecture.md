@@ -23,3 +23,11 @@ ngo_profiles 1--n campaigns
 campaigns 1--n donations
 ngo_profiles 1--1 ngo_wallets
 ngo_wallets 1--n wallet_transactions
+
+## #10 - Admin Dashboard RenderFlex unbounded height
+**Status:** Fixed
+**Date:** 2026-05-06
+**Commit:** [add commit hash after you push]  23cd692
+
+**Error:**
+

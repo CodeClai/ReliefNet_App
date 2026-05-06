@@ -1,9 +1,9 @@
-import 'package:disasteraid_pk/features/campaigns/models/campaign.dart';
-import 'package:disasteraid_pk/features/campaigns/screens/campaign_create_screen.dart';
+import 'package:disasteraid_pk/features/ngo/ngo_campaign_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../core/auth/auth_provider.dart'; // Fixed path
+import '../../core/auth/auth_provider.dart';
 import '../../core/api/api_client.dart';
+import 'ngo_withdrawals_screen.dart';
 
 class NgoDashboard extends StatefulWidget {
   const NgoDashboard({super.key});
@@ -12,218 +12,115 @@ class NgoDashboard extends StatefulWidget {
 }
 
 class _NgoDashboardState extends State<NgoDashboard> {
-  final api = ApiClient();
-  Map<String, dynamic>? wallet;
-  Map<String, dynamic>? ngoProfile;
-  List<Campaign> campaigns = [];
-  bool loading = true;
-  String? error;
+  int _index = 0;
+  Map<String, dynamic>? _wallet;
+  bool _loading = true;
+  final _api = ApiClient();
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadWallet();
   }
 
-  Future<void> _loadData() async {
-    setState(() { loading = true; error = null; });
+  Future<void> _loadWallet() async {
     try {
-      // Get NGO profile first to get ID
-      final ngoRes = await api.dio.get('/ngos/me');
-      final ngo = ngoRes.data['data'];
-      final ngoId = ngo['id'];
-
-      final results = await Future.wait([
-        api.dio.get('/ngos/wallet'),
-        api.dio.get('/campaigns', queryParameters: {'ngo_id': ngoId}), // FIXED: use /campaigns not /ngos/campaigns
-      ]);
-
-      setState(() {
-        ngoProfile = ngo;
-        wallet = results[0].data['data'];
-        campaigns = (results[1].data['data'] as List)
-           .map((e) => Campaign.fromJson(e))
-           .toList();
-      });
+      final res = await _api.dio.get('/ngos/wallet');
+      setState(() { _wallet = res.data['data']; _loading = false; });
     } catch (e) {
-      setState(() => error = e.toString());
-    } finally {
-      setState(() => loading = false);
+      setState(() => _loading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      _buildDashboardTab(),
+      const NgoCampaignsScreen(),
+      const NgoWithdrawalsScreen(),
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('NGO Dashboard'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => context.read<AuthProvider>().logout(),
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadWallet),
+          IconButton(icon: const Icon(Icons.logout), onPressed: () => context.read<AuthProvider>().logout()),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadData,
-        child: loading
-           ? const Center(child: CircularProgressIndicator())
-            : error!= null
-               ? Center(child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Error: $error'),
-                      const SizedBox(height: 16),
-                      FilledButton(onPressed: _loadData, child: const Text('Retry'))
-                    ],
-                  ))
-                : campaigns.isEmpty
-                   ? _buildEmptyState()
-                    : _buildDashboard(),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final created = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const CampaignCreateScreen()),
-          );
-          if (created == true) _loadData();
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('Create Campaign'),
+      body: pages[_index],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Overview'),
+          NavigationDestination(icon: Icon(Icons.campaign), label: 'Campaigns'),
+          NavigationDestination(icon: Icon(Icons.account_balance), label: 'Withdrawals'),
+        ],
       ),
     );
   }
 
-  Widget _buildDashboard() {
-    final balance = double.tryParse(wallet?['balance']?.toString()?? '0')?? 0;
-    final totalReceived = double.tryParse(wallet?['total_received']?.toString()?? '0')?? 0;
-    final totalWithdrawn = double.tryParse(wallet?['total_withdrawn']?.toString()?? '0')?? 0;
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // Wallet Card
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('Wallet Balance', style: Theme.of(context).textTheme.titleMedium),
-                    Icon(Icons.account_balance_wallet, color: Theme.of(context).colorScheme.primary),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'PKR ${balance.toStringAsFixed(0)}',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _statItem('Total Received', 'PKR ${totalReceived.toStringAsFixed(0)}'),
-                    _statItem('Withdrawn', 'PKR ${totalWithdrawn.toStringAsFixed(0)}'),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: balance < 100? null : () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Withdrawal screen coming next')),
-                    );
-                  },
-                  icon: const Icon(Icons.money),
-                  label: const Text('Withdraw Funds'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        // Campaigns Header
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text('My Campaigns', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-            Text('${campaigns.length} Total', style: TextStyle(color: Colors.grey[600])),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Campaign List
-       ...campaigns.map((c) => Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            title: Text(c.title, style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 4),
-                Row(children: [
-                  Chip(label: Text(c.status), visualDensity: VisualDensity.compact),
-                  const SizedBox(width: 8),
-                  Chip(label: Text(c.category), visualDensity: VisualDensity.compact),
-                ]),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: (c.raisedAmount / c.targetAmount).clamp(0.0, 1.0),
-                  backgroundColor: Colors.grey[300],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'PKR ${c.raisedAmount.toInt()} / ${c.targetAmount.toInt()}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ],
-            ),
-            onTap: () {},
-          ),
-        )),
-      ],
-    );
-  }
-
-  Widget _statItem(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-        const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
-
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildDashboardTab() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    
+    return RefreshIndicator(
+      onRefresh: _loadWallet,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          Icon(Icons.campaign, size: 80, color: Colors.grey[400]),
+          Text('Wallet Overview', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          const Text('No campaigns yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Text('Create your first campaign to start receiving donations', style: TextStyle(color: Colors.grey[600])),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.4,
+            children: [
+              _buildStatCard('Available Balance', 'PKR ${_formatNumber(_wallet?['balance'])}', Icons.account_balance_wallet, Colors.green),
+              _buildStatCard('Total Received', 'PKR ${_formatNumber(_wallet?['total_received'])}', Icons.arrow_downward, Colors.blue),
+              _buildStatCard('Total Withdrawn', 'PKR ${_formatNumber(_wallet?['total_withdrawn'])}', Icons.arrow_upward, Colors.orange),
+              _buildStatCard('Status', 'Active', Icons.verified, Colors.teal),
+            ],
+          ),
           const SizedBox(height: 24),
           FilledButton.icon(
+            onPressed: () => setState(() => _index = 2),
             icon: const Icon(Icons.add),
-            label: const Text('Create Campaign'),
-            onPressed: () async {
-              final created = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CampaignCreateScreen()),
-              );
-              if (created == true) _loadData();
-            },
+            label: const Text('Request Withdrawal'),
+            style: FilledButton.styleFrom(padding: const EdgeInsets.all(16)),
           ),
         ],
+      ),
+    );
+  }
+
+  String _formatNumber(dynamic num) {
+    if (num == null) return '0';
+    final n = double.tryParse(num.toString())?? 0;
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return n.toInt().toString();
+  }
+
+  Widget _buildStatCard(String title, String value, IconData icon, Color color) {
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(backgroundColor: color.withOpacity(0.1), radius: 16, child: Icon(icon, color: color, size: 18)),
+            const SizedBox(height: 12),
+            Text(title, style: TextStyle(fontSize: 12, color: Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
+        ),
       ),
     );
   }

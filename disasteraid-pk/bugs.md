@@ -137,3 +137,63 @@
 **Fix:** Changed backend routes from `router.post` to `router.patch` for /ngos/:id/approve and /ngos/:id/reject
 **Files:** backend/src/modules/admin/routes.js
 **Note:** PATCH is REST-appropriate for partial resource updates
+ **Commit:** [add hash after commit] e8c86cf
+
+ ## #10 - Admin dashboard RenderFlex unbounded height
+**Status:** Fixed
+**Date:** 2026-05-06
+**Error:** RenderFlex children have non-zero flex but incoming height constraints are unbounded
+**Root Cause:** Spacer() widgets inside Column within ListView. Spacer requires bounded height.
+**Fix:** Removed Spacer, replaced with SizedBox. Set Column mainAxisSize.min
+**Files:** flutter_app/lib/features/admin/admin_dashboard.dart:134-142
+
+## #11 - Admin NGOs endpoint 404  
+**Status:** Fixed
+**Date:** 2026-05-06
+**Error:** GET /api/admin/ngos?status=PENDING 404 Route not found
+**Root Cause:** Backend only had /ngos/pending, missing query param route
+**Fix:** Added GET /api/admin/ngos with optional status filter
+**Files:** backend/src/modules/admin/routes.js:46-70
+
+## #12 - Admin route order causing 404
+**Status:** Fixed  
+**Date:** 2026-05-06
+**Error:** POST /api/admin/ngos/3/reject 404
+**Root Cause:** Generic /ngos route defined before /ngos/:id/reject
+**Fix:** Moved specific routes before generic routes in Express
+**Files:** backend/src/modules/admin/routes.js
+
+## #13 - Admin NGO HTTP method mismatch
+**Status:** Fixed
+**Date:** 2026-05-06  
+**Decision:** Standardized on PATCH for status updates
+**Root Cause:** Backend used POST, Flutter used PATCH
+**Fix:** Changed backend to router.patch for approve/reject routes
+**Files:** backend/src/modules/admin/routes.js:28,40
+
+
+## #14 - Withdrawal POST crashes backend
+**Status:** Fixed
+**Date:** 2026-05-06
+**Error:** HttpException: Connection closed before full header was received
+**Root Cause:** Used db.pool.connect() but db exported Client not Pool. Undefined property crash killed Node process.
+**Fix:** Changed db.js to export Pool instance. Added /ngos/me route for Flutter.
+**Files:** backend/src/config/db.js, backend/src/modules/ngos/withdrawal_routes.js
+
+
+## #15 - Campaign creation FormData + validation
+**Status:** Fixed
+**Date:** 2026-05-06
+**Error:** 400 "title length must be at least 5" + "category must be one of..."
+**Root Cause:** Backend expected JSON but Flutter sent FormData. Validation strict on category case.
+**Fix:** Added multer middleware to parse FormData. Force category.toUpperCase(). Added NGO approved check.
+**Files:** backend/src/modules/campaigns/routes.js
+
+
+## #15 - Campaign creation validation mismatch
+**Status:** Fixed
+**Date:** 2026-05-06
+**Error:** 400 "title length must be at least 5" + "category must be one of..." + Dropdown assertion failed
+**Root Cause:** Flutter sent lowercase 'food', backend needs 'FOOD'. Description min 20 but Flutter validated 10. Missing end_date.
+**Fix:** Changed category to uppercase, updated validators to match Joi schema, added date picker for end_date.
+**Files:** flutter_app/lib/features/campaigns/screens/campaign_create_screen.dart

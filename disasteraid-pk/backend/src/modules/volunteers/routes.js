@@ -59,7 +59,7 @@ router.get('/tasks/available', auth('volunteer'), async (req, res, next) => {
 
 // POST /api/volunteers/tasks/:id/accept - Volunteer takes task with transaction
 router.post('/tasks/:id/accept', auth('volunteer'), async (req, res, next) => {
-  const client = await db.pool.connect();
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
 

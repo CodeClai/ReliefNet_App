@@ -9,9 +9,9 @@ const campaignSchema = Joi.object({
   title: Joi.string().min(5).max(255).required(),
   description: Joi.string().min(20).required(),
   category: Joi.string().valid('FOOD', 'MEDICAL', 'SHELTER', 'EDUCATION', 'CLOTHING', 'OTHER').required(),
-  target_amount: Joi.number().positive().required(),
+  target_amount: Joi.number().positive().min(1000).required(),
   location: Joi.string().min(3).required(),
-  end_date: Joi.date().greater('now').required(),
+  end_date: Joi.date().greater('now').optional().allow(null, ''), // Changed to optional
 });
 
 // POST /api/campaigns - NGO creates campaign with Cloudinary image

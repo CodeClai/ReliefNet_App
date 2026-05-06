@@ -18,7 +18,7 @@ router.post('/withdrawals', auth('ngo'), async (req, res, next) => {
   if (error) return res.status(400).json({ error: error.details[0].message });
 
   const { amount, bank_name, account_title, account_number, iban } = value;
-  const client = await db.pool.connect();
+  const client = await db.connect();
 
   try {
     await client.query('BEGIN');

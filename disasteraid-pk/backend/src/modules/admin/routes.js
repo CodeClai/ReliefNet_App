@@ -256,7 +256,7 @@ router.get('/withdrawals', auth('admin'), async (req, res, next) => {
 // PATCH /api/admin/withdrawals/:id - Approve/Reject withdrawal
 router.patch('/withdrawals/:id', auth('admin'), async (req, res, next) => {
   const { status, rejection_reason, transaction_ref } = req.body;
-  const client = await db.pool.connect();
+  const client = await db.connect();
 
   try {
     await client.query('BEGIN');

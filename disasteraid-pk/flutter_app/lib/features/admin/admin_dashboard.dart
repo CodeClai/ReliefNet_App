@@ -38,36 +38,36 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final pages = [
-      _buildStatsTab(),
-      const AdminNgosScreen(),
-      const AdminCampaignsScreen(),
-      const AdminWithdrawalsScreen(),
-    ];
+// In AdminDashboard
+@override
+Widget build(BuildContext context) {
+  final pages = [
+    _buildStatsTab(),
+    const AdminNgosScreen(), // or AdminNgoListScreen - pick one name
+    const AdminCampaignsScreen(),
+    const AdminWithdrawalsScreen(),
+  ];
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadStats),
-          IconButton(icon: const Icon(Icons.logout), onPressed: () => context.read<AuthProvider>().logout()),
-        ],
-      ),
-      body: pages[_index],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Stats'),
-          NavigationDestination(icon: Icon(Icons.business), label: 'NGOs'),
-          NavigationDestination(icon: Icon(Icons.campaign), label: 'Campaigns'),
-          NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Withdrawals'),
-        ],
-      ),
-    );
-  }
+  return Scaffold(
+    appBar: AppBar(
+      title: const Text('Admin Panel'),
+      actions: [
+        IconButton(icon: const Icon(Icons.logout), onPressed: () => context.read<AuthProvider>().logout()),
+      ],
+    ),
+    body: pages[_index],
+    bottomNavigationBar: NavigationBar(
+      selectedIndex: _index,
+      onDestinationSelected: (i) => setState(() => _index = i),
+      destinations: const [
+        NavigationDestination(icon: Icon(Icons.dashboard), label: 'Stats'),
+        NavigationDestination(icon: Icon(Icons.business), label: 'NGOs'),
+        NavigationDestination(icon: Icon(Icons.campaign), label: 'Campaigns'),
+        NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Withdrawals'),
+      ],
+    ),
+  );
+}
 
   Widget _buildStatsTab() {
     if (_loading) return const Center(child: CircularProgressIndicator());

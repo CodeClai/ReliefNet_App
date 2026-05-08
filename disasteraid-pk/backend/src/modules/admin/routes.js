@@ -3,6 +3,10 @@ const router = express.Router();
 const db = require('../../config/db');
 const auth = require('../../middleware/auth');
 
+const { logAction } = require('../../utils/audit'); // ADD THIS
+
+
+
 // GET /api/admin/stats - Dashboard stats
 // GET /api/admin/stats - Dashboard stats
 router.get('/stats', auth('admin'), async (req, res, next) => {
@@ -438,6 +442,74 @@ router.patch('/reports/:id', auth('admin'), async (req, res, next) => {
     if (!result.rows[0]) return res.status(404).json({ error: 'Report not found' });
     res.json({ data: result.rows[0] });
   } catch (e) { next(e); }
+});
+
+// GET /api/admin/audit-logs - View all admin actions
+router.get('/audit-logs', auth('admin'), async (req, res, next) => {
+  try {
+    const { action, target_type, limit = 100 } = req.query;
+    let query = `
+      SELECT a.*,
+             u.name as admin_name, u.email as admin_email,
+             CASE
+               WHEN a.target_type = 'ngo' THEN (SELECT org_name FROM ngo_profiles WHERE id = a.target_id)
+               WHEN a.target_type = 'campaign' THEN (SELECT title FROM campaigns WHERE id = a.target_id)
+               WHEN a.target_type = 'user' THEN (SELECT name FROM users WHERE id = a.target_id)
+             END as target_name
+      FROM audit_logs a
+      LEFT JOIN users u ON a.admin_id = u.id
+      WHERE 1=1
+    `;
+    const params = [];
+    if (action) { params.push(action); query += ` AND a.action = $${params.length}`; }
+    if (target_type) { params.push(target_type); query += ` AND a.target_type = $${params.length}`; }
+    query += ` ORDER BY a.created_at DESC LIMIT $${params.length + 1}`;
+    params.push(limit);
+
+    const result = await db.query(query, params);
+    res.json({ data: result.rows });
+  } catch (e) { next(e); }
+});
+
+
+// PATCH /api/admin/ngos/:id/status
+router.patch('/ngos/:id/status', auth('admin'), async (req, res, next) => {
+  const { status, rejection_reason } = req.body;
+  const client = await db.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Get old state for audit
+    const oldNgo = await client.query('SELECT * FROM ngo_profiles WHERE id = $1', [req.params.id]);
+    if (!oldNgo.rows[0]) throw new Error('NGO not found');
+
+    const result = await client.query(
+      `UPDATE ngo_profiles SET status = $1, rejection_reason = $2, updated_at = NOW()
+       WHERE id = $3 RETURNING *`,
+      [status, rejection_reason, req.params.id]
+    );
+
+    // FIXED: Log the action
+    await logAction({
+      adminId: req.user.id,
+      action: status === 'APPROVED'? 'APPROVE_NGO' : 'REJECT_NGO',
+      targetType: 'ngo',
+      targetId: req.params.id,
+      oldValue: { status: oldNgo.rows[0].status },
+      newValue: { status: status, rejection_reason: rejection_reason },
+      reason: rejection_reason,
+      req: req,
+    });
+
+    await client.query('COMMIT');
+    res.json({ data: result.rows[0] });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    next(e);
+  } finally {
+    client.release();
+  }
 });
 
 module.exports = router;

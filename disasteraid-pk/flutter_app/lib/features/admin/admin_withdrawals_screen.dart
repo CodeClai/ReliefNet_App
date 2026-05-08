@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 
 class AdminWithdrawalsScreen extends StatefulWidget {
@@ -24,113 +26,144 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
   Future<void> _loadWithdrawals() async {
     setState(() { _loading = true; _error = null; });
     try {
-
-
-      // final params = _filter == 'ALL'? {} : {'status': _filter};
-
-      final params = (_filter == 'ALL'
-    ? <String, dynamic>{}
-    : {'status': _filter});
-
-
+      final params = _filter == 'ALL'? <String, dynamic>{} : {'status': _filter};
       final res = await _api.dio.get('/admin/withdrawals', queryParameters: params);
       setState(() { _withdrawals = res.data['data']; _loading = false; });
-    } catch (e) {
+    } on DioException catch (e) {
       setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
+        _error = e.response?.data['error']?? 'Failed to load withdrawals';
         _loading = false;
       });
     }
   }
 
-  Future<void> _processWithdrawal(int id, String action, double amount) async {
-    String? ref;
-    String? reason;
-
-    if (action == 'APPROVED') {
-      ref = await showDialog<String>(
-        context: context,
-        builder: (context) {
-          final ctrl = TextEditingController();
-          return AlertDialog(
-            title: const Text('Approve Withdrawal'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Amount: PKR ${amount.toInt()}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: ctrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Transaction Reference',
-                    hintText: 'Bank transfer ID',
-                    border: OutlineInputBorder(),
-                  ),
+  Future<void> _approveWithdrawal(int id) async {
+    final notes = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final ctrl = TextEditingController();
+        return AlertDialog(
+          title: const Text('Approve Withdrawal'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('This will mark the request as approved. You still need to transfer money and mark COMPLETED.'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: ctrl,
+                decoration: const InputDecoration(
+                  labelText: 'Admin Notes (Optional)',
+                  border: OutlineInputBorder(),
                 ),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              FilledButton(
-                onPressed: () {
-                  if (ctrl.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reference required')));
-                    return;
-                  }
-                  Navigator.pop(context, ctrl.text.trim());
-                },
-                child: const Text('Approve'),
+                maxLines: 2,
               ),
             ],
-          );
-        },
-      );
-      if (ref == null) return;
-    } else {
-      reason = await showDialog<String>(
-        context: context,
-        builder: (context) {
-          final ctrl = TextEditingController();
-          return AlertDialog(
-            title: const Text('Reject Withdrawal'),
-            content: TextField(
-              controller: ctrl,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(context, ctrl.text.trim()), child: const Text('Approve')),
+          ],
+        );
+      },
+    );
+    if (notes == null) return;
+    await _submitStatus(id, 'APPROVED', adminNotes: notes);
+  }
+
+  Future<void> _completeWithdrawal(int id, double amount) async {
+    final picker = ImagePicker();
+    final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (img == null) return;
+
+    final notesCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Complete Withdrawal'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Confirm you transferred PKR ${amount.toInt()} to the NGO bank account.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: notesCtrl,
               decoration: const InputDecoration(
-                labelText: 'Rejection Reason',
+                labelText: 'Transaction Ref / Notes',
+                hintText: 'Bank transfer ID',
                 border: OutlineInputBorder(),
               ),
-              maxLines: 3,
+              maxLines: 2,
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              FilledButton(
-                onPressed: () {
-                  if (ctrl.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reason required')));
-                    return;
-                  }
-                  Navigator.pop(context, ctrl.text.trim());
-                },
-                child: const Text('Reject'),
-                style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              ),
-            ],
-          );
-        },
-      );
-      if (reason == null) return;
-    }
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Complete')),
+        ],
+      ),
+    );
+    if (confirmed!= true) return;
 
+    await _submitStatus(id, 'COMPLETED', adminNotes: notesCtrl.text.trim(), proofFile: img);
+  }
+
+  Future<void> _rejectWithdrawal(int id) async {
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        final ctrl = TextEditingController();
+        return AlertDialog(
+          title: const Text('Reject Withdrawal'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(
+              labelText: 'Rejection Reason',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                if (ctrl.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reason required')));
+                  return;
+                }
+                Navigator.pop(context, ctrl.text.trim());
+              },
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Reject'),
+            ),
+          ],
+        );
+      },
+    );
+    if (reason == null) return;
+    await _submitStatus(id, 'REJECTED', rejectionReason: reason);
+  }
+
+  Future<void> _submitStatus(int id, String status, {String? adminNotes, String? rejectionReason, XFile? proofFile}) async {
     try {
-      await _api.dio.patch('/admin/withdrawals/$id', data: {
-        'status': action,
-        'transaction_ref': ref,
-        'rejection_reason': reason,
-      });
+      FormData formData;
+      if (proofFile!= null) {
+        formData = FormData.fromMap({
+          'status': status,
+          'admin_notes': adminNotes,
+          'proof': await MultipartFile.fromFile(proofFile.path),
+        });
+      } else {
+        formData = FormData.fromMap({
+          'status': status,
+          'admin_notes': adminNotes,
+          'rejection_reason': rejectionReason,
+        });
+      }
+
+      await _api.dio.patch('/admin/withdrawals/$id', data: formData);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Withdrawal $action'), backgroundColor: Colors.green),
+          SnackBar(content: Text('Withdrawal $status'), backgroundColor: Colors.green),
         );
         _loadWithdrawals();
       }
@@ -142,7 +175,8 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'APPROVED': return Colors.green;
+      case 'COMPLETED': return Colors.green;
+      case 'APPROVED': return Colors.blue;
       case 'REJECTED': return Colors.red;
       case 'PENDING': return Colors.orange;
       default: return Colors.grey;
@@ -157,7 +191,7 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.all(12),
           child: Row(
-            children: ['ALL', 'PENDING', 'APPROVED', 'REJECTED'].map((f) =>
+            children: ['ALL', 'PENDING', 'APPROVED', 'COMPLETED', 'REJECTED'].map((f) =>
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilterChip(
@@ -171,9 +205,9 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
         ),
         Expanded(
           child: _loading
-         ? const Center(child: CircularProgressIndicator())
+        ? const Center(child: CircularProgressIndicator())
             : _error!= null
-         ? Center(
+        ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -184,7 +218,7 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
                   ),
                 )
             : _withdrawals.isEmpty
-         ? Center(
+        ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -207,16 +241,13 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
                           child: ExpansionTile(
                             leading: CircleAvatar(
                               backgroundColor: _statusColor(w['status']).withOpacity(0.1),
-                              child: Text(
-                                'PKR',
-                                style: TextStyle(color: _statusColor(w['status']), fontSize: 10, fontWeight: FontWeight.bold),
-                              ),
+                              child: Icon(Icons.account_balance_wallet, color: _statusColor(w['status']), size: 20),
                             ),
                             title: Text(
                               'PKR ${amount.toInt()} - ${w['org_name']}',
                               style: const TextStyle(fontWeight: FontWeight.bold),
                             ),
-                            subtitle: Text('${w['bank_name']} | ${w['created_at']?.toString().split('T')[0]?? ''}'),
+                            subtitle: Text('${w['bank_name']} | ${w['requested_at']?.toString().split('T')[0]?? ''}'), // FIXED
                             trailing: Chip(
                               label: Text(w['status'], style: const TextStyle(fontSize: 11)),
                               backgroundColor: _statusColor(w['status']).withOpacity(0.1),
@@ -230,20 +261,30 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
                                   children: [
                                     _detailRow('Account Title', w['account_title']),
                                     _detailRow('Account Number', w['account_number']),
-                                    if (w['iban']!= null) _detailRow('IBAN', w['iban']),
-                                    if (w['transaction_ref']!= null)
-                                      _detailRow('Transaction Ref', w['transaction_ref'], Colors.green),
-                                    if (w['rejection_reason']!= null)
-                                      _detailRow('Rejection Reason', w['rejection_reason'], Colors.red),
-                                    if (w['processed_at']!= null)
-                                      _detailRow('Processed At', w['processed_at'].toString().split('T')[0]),
+                                    _detailRow('IBAN', w['iban']),
+                                    _detailRow('Requester', w['requester_email']),
+                                    if (w['admin_notes']!= null) _detailRow('Admin Notes', w['admin_notes'], Colors.blue),
+                                    if (w['rejection_reason']!= null) _detailRow('Rejection Reason', w['rejection_reason'], Colors.red),
+                                    if (w['transfer_proof_url']!= null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: TextButton.icon(
+                                          onPressed: () async {
+                                            final url = Uri.parse(w['transfer_proof_url']);
+                                            if (await canLaunchUrl(url)) await launchUrl(url);
+                                          },
+                                          icon: const Icon(Icons.image, size: 16),
+                                          label: const Text('View Transfer Proof'),
+                                        ),
+                                      ),
+                                    if (w['processed_at']!= null) _detailRow('Processed At', w['processed_at'].toString().split('T')[0]),
                                     const SizedBox(height: 16),
                                     if (w['status'] == 'PENDING')
                                       Row(
                                         children: [
                                           Expanded(
                                             child: OutlinedButton.icon(
-                                              onPressed: () => _processWithdrawal(w['id'], 'REJECTED', amount),
+                                              onPressed: () => _rejectWithdrawal(w['id']),
                                               icon: const Icon(Icons.close),
                                               label: const Text('Reject'),
                                               style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
@@ -252,12 +293,21 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
                                           const SizedBox(width: 12),
                                           Expanded(
                                             child: FilledButton.icon(
-                                              onPressed: () => _processWithdrawal(w['id'], 'APPROVED', amount),
+                                              onPressed: () => _approveWithdrawal(w['id']),
                                               icon: const Icon(Icons.check),
                                               label: const Text('Approve'),
                                             ),
                                           ),
                                         ],
+                                      ),
+                                    if (w['status'] == 'APPROVED')
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: FilledButton.icon(
+                                          onPressed: () => _completeWithdrawal(w['id'], amount),
+                                          icon: const Icon(Icons.upload_file),
+                                          label: const Text('Upload Proof & Complete'),
+                                        ),
                                       ),
                                   ],
                                 ),

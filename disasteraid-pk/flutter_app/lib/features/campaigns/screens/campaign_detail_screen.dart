@@ -1,3 +1,4 @@
+import 'package:disasteraid_pk/features/campaigns/widgets/manual_donate_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
@@ -39,19 +40,60 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     }
   }
 
-  void _showDonateDialog() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) => DonateSheet(
-        campaign: campaign!,
-        onSuccess: () {
-          _load(); // Refresh campaign to show updated raisedAmount
-          Navigator.pop(ctx);
-        },
+void _showDonateDialog() {
+  showModalBottomSheet(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Wrap(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.credit_card),
+            title: const Text('Donate via Card / JazzCash'),
+            subtitle: const Text('Instant - Coming Soon'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showMockDonateSheet(); // Your existing flow
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.account_balance),
+            title: const Text('Bank Transfer'),
+            subtitle: const Text('Transfer + Upload Slip - Available Now'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _showManualDonateSheet(); // New manual flow
+            },
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+void _showMockDonateSheet() {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) => DonateSheet(
+      campaign: campaign!,
+      onSuccess: () {
+        _load(); // Refresh campaign to show updated raisedAmount
+        Navigator.pop(ctx);
+      },
+    ),
+  );
+}
+
+void _showManualDonateSheet() {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) => ManualDonateSheet(
+      campaignId: campaign!.id,
+      campaignTitle: campaign!.title,
+    ),
+  ).then((_) => _load()); // Refresh after closing
+}
 
   @override
   Widget build(BuildContext context) {

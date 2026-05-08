@@ -1,3 +1,4 @@
+import 'package:disasteraid_pk/features/admin/admin_audit_screen.dart';
 import 'package:disasteraid_pk/features/admin/admin_request_screen.dart';
 import 'package:disasteraid_pk/features/admin/admin_reports_screen.dart'; // ADDED
 import 'package:flutter/material.dart';
@@ -49,6 +50,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
       const AdminWithdrawalsScreen(),
       const AdminRequestsScreen(),
       const AdminReportsScreen(), // ADDED
+      const AdminAuditScreen(),
     ];
 
     return Scaffold(
@@ -69,6 +71,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
           NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Withdrawals'),
           NavigationDestination(icon: Icon(Icons.inbox), label: 'Requests'),
           NavigationDestination(icon: Icon(Icons.report), label: 'Reports'), // ADDED
+     // In destinations:
+NavigationDestination(icon: Icon(Icons.history), label: 'Audit'), // ADD THIS     
         ],
       ),
     );

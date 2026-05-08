@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
 
 class NgoWithdrawalsScreen extends StatefulWidget {
@@ -52,11 +53,80 @@ class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'APPROVED': return Colors.green;
+      case 'COMPLETED': return Colors.green;
+      case 'APPROVED': return Colors.blue;
       case 'REJECTED': return Colors.red;
       case 'PENDING': return Colors.orange;
       default: return Colors.grey;
     }
+  }
+
+  void _showWithdrawalDetails(Map w) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Withdrawal Details', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            _buildDetailRow('Amount', 'PKR ${double.parse(w['amount'].toString()).toInt()}'),
+            _buildDetailRow('Status', w['status']),
+            _buildDetailRow('Bank', w['bank_name']),
+            _buildDetailRow('Account Title', w['account_title']),
+            _buildDetailRow('Account #', w['account_number']),
+            _buildDetailRow('IBAN', w['iban']),
+            _buildDetailRow('Requested', w['requested_at'].toString().split('T')[0]),
+            if (w['processed_at']!= null) _buildDetailRow('Processed', w['processed_at'].toString().split('T')[0]),
+            if (w['admin_notes']!= null)...[
+              const SizedBox(height: 12),
+              Text('Admin Notes:', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700])),
+              const SizedBox(height: 4),
+              Text(w['admin_notes']),
+            ],
+            if (w['rejection_reason']!= null)...[
+              const SizedBox(height: 12),
+              Text('Rejection Reason:', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red[700])),
+              const SizedBox(height: 4),
+              Text(w['rejection_reason']),
+            ],
+            if (w['transfer_proof_url']!= null)...[
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final url = Uri.parse(w['transfer_proof_url']);
+                    if (await canLaunchUrl(url)) {
+                      await launchUrl(url, mode: LaunchMode.externalApplication);
+                    }
+                  },
+                  icon: const Icon(Icons.receipt_long),
+                  label: const Text('View Transfer Proof'),
+                ),
+              ),
+            ],
+            SizedBox(height: MediaQuery.of(ctx).viewInsets.bottom),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: Colors.grey[600])),
+          Flexible(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600), textAlign: TextAlign.end)),
+        ],
+      ),
+    );
   }
 
   @override
@@ -116,9 +186,10 @@ class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
               ),
             ))
           else
-           ..._withdrawals.map((w) => Card(
+          ..._withdrawals.map((w) => Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
+                onTap: () => _showWithdrawalDetails(w),
                 leading: CircleAvatar(
                   backgroundColor: _statusColor(w['status']).withOpacity(0.1),
                   child: Icon(Icons.account_balance, color: _statusColor(w['status'])),
@@ -128,9 +199,11 @@ class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text('${w['bank_name']} - ${w['account_number']}'),
-                    Text(w['created_at'].toString().split('T')[0], style: const TextStyle(fontSize: 12)),
+                    Text(w['requested_at'].toString().split('T')[0], style: const TextStyle(fontSize: 12)), // FIXED: requested_at
                     if (w['status'] == 'REJECTED' && w['rejection_reason']!= null)
                       Text('Reason: ${w['rejection_reason']}', style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    if (w['status'] == 'APPROVED')
+                      Text('Awaiting transfer', style: TextStyle(color: Colors.blue[700], fontSize: 12)),
                   ],
                 ),
                 trailing: Chip(
@@ -241,7 +314,11 @@ class _WithdrawDialogState extends State<_WithdrawDialog> {
                 decoration: const InputDecoration(labelText: 'IBAN (24 chars)', border: OutlineInputBorder()),
                 textCapitalization: TextCapitalization.characters,
                 maxLength: 24,
-                validator: (v) => v!.trim().length!= 24? 'IBAN must be 24 characters' : null,
+                validator: (v) {
+                  if (v!.trim().length!= 24) return 'IBAN must be 24 characters';
+                  if (!v.startsWith('PK')) return 'IBAN must start with PK';
+                  return null;
+                },
               ),
             ],
           ),

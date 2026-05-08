@@ -14,6 +14,16 @@ const onboardSchema = Joi.object({
   phone: Joi.string().pattern(/^[0-9]{11}$/).required(),
 });
 
+// GET /api/ngos - List approved NGOs for volunteers to choose
+router.get('/', async (req, res, next) => {
+  try {
+    const result = await db.query(
+      `SELECT id, org_name, address as city FROM ngo_profiles WHERE status='APPROVED' ORDER BY org_name`
+    );
+    res.json({ data: result.rows });
+  } catch (e) { next(e); }
+});
+
 // POST /api/ngos/onboard - NGO submits verification docs
 router.post('/onboard', auth('ngo'), upload.array('docs', 5), async (req, res, next) => {
   try {

@@ -1,3 +1,5 @@
+import 'package:disasteraid_pk/features/admin/admin_request_screen.dart';
+import 'package:disasteraid_pk/features/admin/admin_reports_screen.dart'; // ADDED
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/auth/auth_provider.dart';
@@ -38,36 +40,39 @@ class _AdminDashboardState extends State<AdminDashboard> {
     }
   }
 
-// In AdminDashboard
-@override
-Widget build(BuildContext context) {
-  final pages = [
-    _buildStatsTab(),
-    const AdminNgosScreen(), // or AdminNgoListScreen - pick one name
-    const AdminCampaignsScreen(),
-    const AdminWithdrawalsScreen(),
-  ];
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      _buildStatsTab(),
+      const AdminNgosScreen(),
+      const AdminCampaignsScreen(),
+      const AdminWithdrawalsScreen(),
+      const AdminRequestsScreen(),
+      const AdminReportsScreen(), // ADDED
+    ];
 
-  return Scaffold(
-    appBar: AppBar(
-      title: const Text('Admin Panel'),
-      actions: [
-        IconButton(icon: const Icon(Icons.logout), onPressed: () => context.read<AuthProvider>().logout()),
-      ],
-    ),
-    body: pages[_index],
-    bottomNavigationBar: NavigationBar(
-      selectedIndex: _index,
-      onDestinationSelected: (i) => setState(() => _index = i),
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.dashboard), label: 'Stats'),
-        NavigationDestination(icon: Icon(Icons.business), label: 'NGOs'),
-        NavigationDestination(icon: Icon(Icons.campaign), label: 'Campaigns'),
-        NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Withdrawals'),
-      ],
-    ),
-  );
-}
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Admin Panel'),
+        actions: [
+          IconButton(icon: const Icon(Icons.logout), onPressed: () => context.read<AuthProvider>().logout()),
+        ],
+      ),
+      body: pages[_index],
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _index,
+        onDestinationSelected: (i) => setState(() => _index = i),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard), label: 'Stats'),
+          NavigationDestination(icon: Icon(Icons.business), label: 'NGOs'),
+          NavigationDestination(icon: Icon(Icons.campaign), label: 'Campaigns'),
+          NavigationDestination(icon: Icon(Icons.account_balance_wallet), label: 'Withdrawals'),
+          NavigationDestination(icon: Icon(Icons.inbox), label: 'Requests'),
+          NavigationDestination(icon: Icon(Icons.report), label: 'Reports'), // ADDED
+        ],
+      ),
+    );
+  }
 
   Widget _buildStatsTab() {
     if (_loading) return const Center(child: CircularProgressIndicator());
@@ -105,7 +110,7 @@ Widget build(BuildContext context) {
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
-            childAspectRatio: 1.4, // FIXED: Adjusted to prevent overflow
+            childAspectRatio: 1.4,
             children: [
               _buildStatCard('Total Users', users['total']?.toString()?? '0', Icons.people, Colors.blue),
               _buildStatCard('Donors', users['donors']?.toString()?? '0', Icons.favorite, Colors.pink),
@@ -116,7 +121,7 @@ Widget build(BuildContext context) {
           const Divider(height: 32),
           Text('Campaigns & Donations', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          GridView.count( // FIXED: Wrapped in GridView for consistent layout
+          GridView.count(
             crossAxisCount: 2,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
@@ -143,24 +148,21 @@ Widget build(BuildContext context) {
     return n.toInt().toString();
   }
 
-  // FIXED: Removed all Spacer widgets
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Card(
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisSize: MainAxisSize.min, // shrink-wrap
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Icon row - no Spacer needed
             CircleAvatar(
               backgroundColor: color.withOpacity(0.1),
               radius: 16,
               child: Icon(icon, color: color, size: 18)
             ),
-            const SizedBox(height: 12), // Fixed space instead of Spacer
-            // Title
+            const SizedBox(height: 12),
             Text(
               title,
               style: TextStyle(fontSize: 12, color: Colors.grey[600]),
@@ -168,7 +170,6 @@ Widget build(BuildContext context) {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
-            // Value
             Text(
               value,
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),

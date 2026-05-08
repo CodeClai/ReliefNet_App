@@ -1,8 +1,8 @@
-
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:disasteraid_pk/core/api/api_client.dart';
 import 'package:disasteraid_pk/core/auth/auth_provider.dart';
+import 'package:disasteraid_pk/features/volunteers/complete_profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
@@ -42,16 +42,30 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
         _api.dio.get('/volunteers/tasks/available'),
         _api.dio.get('/volunteers/tasks/my'),
       ]);
-      setState(() {
-        _available = results[0].data['data'];
-        _myTasks = results[1].data['data'];
-        _loading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _available = results[0].data['data'];
+          _myTasks = results[1].data['data'];
+          _loading = false;
+        });
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 400 &&
+          e.response?.data['error'] == 'Complete volunteer profile first') {
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const CompleteProfileScreen()),
+          );
+        }
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _error = e.response?.data['error']?? 'Failed to load tasks';
+          _loading = false;
+        });
+      }
     }
   }
 

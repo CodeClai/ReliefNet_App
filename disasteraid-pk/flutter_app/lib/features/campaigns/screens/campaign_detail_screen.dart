@@ -229,37 +229,40 @@ class _DonateSheetState extends State<DonateSheet> {
     super.dispose();
   }
 
-  Future<void> _donate() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() => _loading = true);
+Future<void> _donate() async {
+  if (!_formKey.currentState!.validate()) return;
+  setState(() => _loading = true);
 
-    try {
-      await _api.dio.post('/donations', data: {
-        'campaign_id': widget.campaign.id,
-        'amount': double.parse(_amountController.text),
-        'donor_name': _nameController.text.trim(),
-        'donor_email': _emailController.text.trim().isEmpty? null : _emailController.text.trim(),
-        'payment_method': _paymentMethod,
-        'transaction_id': 'MOCK_${DateTime.now().millisecondsSinceEpoch}', // Replace with real payment gateway
-        'is_anonymous': false,
-      });
+  try {
+    final res = await _api.dio.post('/donations', data: {
+      'campaign_id': widget.campaign.id,
+      'amount': double.parse(_amountController.text),
+      'donor_name': _nameController.text.trim(),
+      'donor_email': _emailController.text.trim().isEmpty? null : _emailController.text.trim(),
+      'payment_method': _paymentMethod,
+      'is_anonymous': false,
+      // transaction_id removed - backend generates UUID now
+    });
 
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Donation successful! Thank you'), backgroundColor: Colors.green),
-        );
-        widget.onSuccess();
-      }
-    } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Donation failed';
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      final txnRef = res.data['data']['transaction_ref'];
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Donation successful! Ref: ${txnRef.substring(0, 8)}...'),
+          backgroundColor: Colors.green
+        ),
+      );
+      widget.onSuccess();
     }
+  } on DioException catch (e) {
+    final msg = e.response?.data['error']?? 'Donation failed';
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  } finally {
+    if (mounted) setState(() => _loading = false);
   }
+}
 
   @override
   Widget build(BuildContext context) {

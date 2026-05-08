@@ -4,11 +4,13 @@ import 'package:disasteraid_pk/core/auth/auth_provider.dart';
 import 'package:disasteraid_pk/features/admin/admin_dashboard.dart';
 import 'package:disasteraid_pk/features/auth/login_screen.dart';
 import 'package:disasteraid_pk/features/auth/register_screen.dart';
+import 'package:disasteraid_pk/features/beneficiaries/screens/beneficiary_dashboard.dart';
 import 'package:disasteraid_pk/features/campaigns/screens/campaign_create_screen.dart';
 import 'package:disasteraid_pk/features/campaigns/screens/campaign_list_screen.dart';
 import 'package:disasteraid_pk/features/ngo/ngo_dashboard.dart';
 import 'package:disasteraid_pk/features/ngo/ngo_onboard_screen.dart';
-import 'package:disasteraid_pk/features/volunteers/screens/volunteer_tasks_screen.dart';
+import 'package:disasteraid_pk/features/volunteers/complete_profile_screen.dart';
+import 'package:disasteraid_pk/features/volunteers/volunteer_tasks_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
@@ -34,12 +36,15 @@ class MyApp extends StatelessWidget {
               useMaterial3: true,
             ),
             debugShowCheckedModeBanner: false,
-            home: !auth.isAuthenticated? const LoginScreen() : const AppShell(),
+            // REMOVE home: property completely
+            initialRoute: auth.isAuthenticated ? '/' : '/login', // ADD THIS
             routes: {
+              '/': (_) => const AppShell(), // Now this is OK
               '/login': (_) => const LoginScreen(),
               '/register': (_) => const RegisterScreen(),
               '/ngo/onboard': (_) => const NgoOnboardScreen(),
               '/campaign/create': (_) => const CampaignCreateScreen(),
+              '/volunteer/complete-profile': (_) => const CompleteProfileScreen(),
             },
           );
         },
@@ -47,7 +52,6 @@ class MyApp extends StatelessWidget {
     );
   }
 }
-
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
   @override
@@ -100,7 +104,7 @@ class _AppShellState extends State<AppShell> {
         return const VolunteerTasksScreen();
       case 'beneficiary':
         // Beneficiary needs to pick a campaign first, so show campaign list
-        return const CampaignListScreen();
+        return const BeneficiaryDashboard();
       default:
         return const LoginScreen();
     }

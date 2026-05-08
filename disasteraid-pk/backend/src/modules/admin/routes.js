@@ -233,6 +233,77 @@ router.get('/analytics', auth('admin'), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+
+
+// GET /api/admin/aid-requests - All requests across system
+router.get('/aid-requests', auth('admin'), async (req, res, next) => {
+  try {
+    const { status } = req.query;
+    let query = `
+      SELECT a.*,
+             COALESCE(c.title, 'General Request') as campaign_title,
+             n.org_name,
+             u.name as beneficiary_name, u.phone as beneficiary_phone,
+             v.id as volunteer_id, vu.name as volunteer_name
+      FROM aid_requests a
+      LEFT JOIN campaigns c ON a.campaign_id = c.id
+      LEFT JOIN ngo_profiles n ON a.ngo_id = n.id
+      JOIN users u ON a.beneficiary_id = u.id
+      LEFT JOIN volunteer_profiles v ON a.volunteer_id = v.id
+      LEFT JOIN users vu ON v.user_id = vu.id
+    `;
+    const params = [];
+    if (status) { params.push(status); query += ` WHERE a.status = $${params.length}`; }
+    query += ' ORDER BY CASE a.urgency WHEN \'CRITICAL\' THEN 1 WHEN \'HIGH\' THEN 2 WHEN \'MEDIUM\' THEN 3 ELSE 4 END, a.created_at DESC';
+
+    const result = await db.query(query, params);
+    res.json({ data: result.rows });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/admin/aid-requests/:id/assign - Admin assigns to NGO or rejects
+router.patch('/aid-requests/:id/assign', auth('admin'), async (req, res, next) => {
+  const { ngo_id, status, rejection_reason } = req.body;
+  const client = await db.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    if (status === 'REJECTED') {
+      const result = await client.query(
+        `UPDATE aid_requests SET status='REJECTED', rejection_reason=$1, updated_at=NOW()
+         WHERE id=$2 AND status='PENDING' RETURNING *`,
+        [rejection_reason, req.params.id]
+      );
+      if (!result.rows[0]) throw new Error('Request not found or already processed');
+      await client.query('COMMIT');
+      return res.json({ data: result.rows[0] });
+    }
+
+    // Assign to NGO
+    if (!ngo_id) throw new Error('ngo_id required for approval');
+
+    const ngo = await client.query('SELECT status FROM ngo_profiles WHERE id=$1', [ngo_id]);
+    if (!ngo.rows[0] || ngo.rows[0].status!== 'APPROVED') throw new Error('NGO not approved');
+
+    const result = await client.query(
+      `UPDATE aid_requests
+       SET ngo_id=$1, status='APPROVED', updated_at=NOW()
+       WHERE id=$2 AND status='PENDING' RETURNING *`,
+      [ngo_id, req.params.id]
+    );
+    if (!result.rows[0]) throw new Error('Request not found or already processed');
+
+    await client.query('COMMIT');
+    res.json({ data: result.rows[0] });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ error: e.message });
+  } finally {
+    client.release();
+  }
+});
+
 // GET /api/admin/withdrawals - All withdrawal requests
 router.get('/withdrawals', auth('admin'), async (req, res, next) => {
   try {
@@ -294,6 +365,79 @@ router.patch('/withdrawals/:id', auth('admin'), async (req, res, next) => {
   } finally {
     client.release();
   }
+});
+
+
+
+
+// POST /api/reports - Any user can report
+router.post('/reports', auth(), async (req, res, next) => {
+  try {
+    const schema = Joi.object({
+      target_type: Joi.string().valid('user', 'campaign', 'request').required(),
+      target_id: Joi.number().integer().required(),
+      reason: Joi.string().valid('SPAM', 'SCAM', 'INAPPROPRIATE', 'FAKE', 'HARASSMENT', 'OTHER').required(),
+      description: Joi.string().max(500).allow('', null),
+    });
+    const { error, value } = schema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    // Prevent duplicate reports from same user
+    const existing = await db.query(
+      'SELECT id FROM reports WHERE reporter_id=$1 AND target_type=$2 AND target_id=$3 AND status=\'PENDING\'',
+      [req.user.id, value.target_type, value.target_id]
+    );
+    if (existing.rows[0]) return res.status(400).json({ error: 'You already reported this' });
+
+    const result = await db.query(
+      `INSERT INTO reports (reporter_id, target_type, target_id, reason, description)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [req.user.id, value.target_type, value.target_id, value.reason, value.description]
+    );
+    res.json({ data: result.rows[0] });
+  } catch (e) { next(e); }
+});
+
+// GET /api/admin/reports - Admin views all reports
+router.get('/reports', auth('admin'), async (req, res, next) => {
+  try {
+    const { status = 'PENDING' } = req.query;
+    const result = await db.query(`
+      SELECT r.*,
+             u.name as reporter_name, u.email as reporter_email,
+             CASE
+               WHEN r.target_type = 'user' THEN (SELECT name FROM users WHERE id = r.target_id)
+               WHEN r.target_type = 'campaign' THEN (SELECT title FROM campaigns WHERE id = r.target_id)
+               WHEN r.target_type = 'request' THEN (SELECT 'Request #' || id FROM aid_requests WHERE id = r.target_id)
+             END as target_name
+      FROM reports r
+      LEFT JOIN users u ON r.reporter_id = u.id
+      WHERE r.status = $1
+      ORDER BY r.created_at DESC
+      LIMIT 100
+    `, [status]);
+    res.json({ data: result.rows });
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/admin/reports/:id - Admin resolves/dismisses
+router.patch('/reports/:id', auth('admin'), async (req, res, next) => {
+  try {
+    const schema = Joi.object({
+      status: Joi.string().valid('REVIEWED', 'RESOLVED', 'DISMISSED').required(),
+      admin_notes: Joi.string().max(500).allow('', null),
+    });
+    const { error, value } = schema.validate(req.body);
+    if (error) return res.status(400).json({ error: error.details[0].message });
+
+    const result = await db.query(
+      `UPDATE reports SET status=$1, admin_notes=$2, reviewed_at=NOW(), reviewed_by=$3
+       WHERE id=$4 RETURNING *`,
+      [value.status, value.admin_notes, req.user.id, req.params.id]
+    );
+    if (!result.rows[0]) return res.status(404).json({ error: 'Report not found' });
+    res.json({ data: result.rows[0] });
+  } catch (e) { next(e); }
 });
 
 module.exports = router;

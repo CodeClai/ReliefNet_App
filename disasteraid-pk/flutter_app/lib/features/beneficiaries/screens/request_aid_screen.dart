@@ -4,9 +4,9 @@ import 'package:dio/dio.dart';
 import '../../../core/api/api_client.dart';
 
 class RequestAidScreen extends StatefulWidget {
-  final int campaignId;
+  final int? campaignId; // nullable for general requests
   final String campaignTitle;
-  const RequestAidScreen({super.key, required this.campaignId, required this.campaignTitle});
+  const RequestAidScreen({super.key, this.campaignId, this.campaignTitle = 'General Request'});
 
   @override
   State<RequestAidScreen> createState() => _RequestAidScreenState();
@@ -19,7 +19,8 @@ class _RequestAidScreenState extends State<RequestAidScreen> {
   final _familySizeController = TextEditingController(text: '1');
 
   String _urgency = 'MEDIUM';
-  final List<String> _selectedItems = ['food'];
+  String _category = 'FOOD'; // Primary category for backend
+  final List<String> _selectedItems = ['food']; // Detailed items
   bool _loading = false;
   final _api = ApiClient();
 
@@ -32,12 +33,29 @@ class _RequestAidScreenState extends State<RequestAidScreen> {
     'hygiene': 'Hygiene Kit',
   };
 
+  final Map<String, String> _categoryMap = {
+    'food': 'FOOD',
+    'water': 'FOOD',
+    'medicine': 'MEDICAL',
+    'shelter': 'SHELTER',
+    'clothing': 'CLOTHING',
+    'hygiene': 'OTHER',
+  };
+
   @override
   void dispose() {
     _descController.dispose();
     _locationController.dispose();
     _familySizeController.dispose();
     super.dispose();
+  }
+
+  void _updateCategory() {
+    if (_selectedItems.isNotEmpty) {
+      setState(() {
+        _category = _categoryMap[_selectedItems.first]?? 'OTHER';
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -52,7 +70,8 @@ class _RequestAidScreenState extends State<RequestAidScreen> {
     setState(() => _loading = true);
     try {
       await _api.dio.post('/aid-requests', data: {
-        'campaign_id': widget.campaignId,
+        'campaign_id': widget.campaignId, // can be null
+        'category': _category, // backend requires this
         'items_needed': _selectedItems,
         'description': _descController.text.trim(),
         'urgency': _urgency,
@@ -104,7 +123,8 @@ class _RequestAidScreenState extends State<RequestAidScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('Campaign', style: TextStyle(fontSize: 12, color: Colors.grey[700])),
+                          Text(widget.campaignId == null? 'General Request' : 'Campaign',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[700])),
                           Text(widget.campaignTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
                         ],
                       ),
@@ -131,11 +151,14 @@ class _RequestAidScreenState extends State<RequestAidScreen> {
                       } else {
                         _selectedItems.remove(entry.key);
                       }
+                      _updateCategory(); // auto-set category from first item
                     });
                   },
                 );
               }).toList(),
             ),
+            const SizedBox(height: 8),
+            Text('Category: $_category', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
             const SizedBox(height: 24),
             TextFormField(
               controller: _descController,
@@ -160,8 +183,8 @@ class _RequestAidScreenState extends State<RequestAidScreen> {
                       prefixIcon: Icon(Icons.warning, color: _urgencyColor(_urgency)),
                     ),
                     items: ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
-                  .map((u) => DropdownMenuItem(value: u, child: Text(u)))
-                      .toList(),
+                     .map((u) => DropdownMenuItem(value: u, child: Text(u)))
+                     .toList(),
                     onChanged: (v) => setState(() => _urgency = v!),
                   ),
                 ),

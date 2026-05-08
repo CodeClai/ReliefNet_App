@@ -16,13 +16,13 @@ router.get('/aid-requests', auth('ngo'), async (req, res, next) => {
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
     if (!ngo.rows[0]) return res.status(400).json({ error: 'NGO profile not found' });
 
-    const { status } = req.query;
+    const { status } = req.query; // FIXED: add filter
     let query = `
       SELECT a.*, c.title as campaign_title, c.image_url,
              u.name as beneficiary_name, u.phone as beneficiary_phone,
              v.id as volunteer_id, vu.name as volunteer_name, vu.phone as volunteer_phone
       FROM aid_requests a
-      JOIN campaigns c ON a.campaign_id = c.id
+      LEFT JOIN campaigns c ON a.campaign_id = c.id
       JOIN users u ON a.beneficiary_id = u.id
       LEFT JOIN volunteer_profiles v ON a.volunteer_id = v.id
       LEFT JOIN users vu ON v.user_id = vu.id

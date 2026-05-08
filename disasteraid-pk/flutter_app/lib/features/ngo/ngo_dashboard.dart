@@ -1,3 +1,4 @@
+import 'package:disasteraid_pk/features/ngo/ngo_aid_requests_screen.dart';
 import 'package:disasteraid_pk/features/ngo/ngo_campaign_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -37,6 +38,7 @@ class _NgoDashboardState extends State<NgoDashboard> {
     final pages = [
       _buildDashboardTab(),
       const NgoCampaignsScreen(),
+      const NgoAidRequestsScreen(),
       const NgoWithdrawalsScreen(),
     ];
 
@@ -55,6 +57,8 @@ class _NgoDashboardState extends State<NgoDashboard> {
         destinations: const [
           NavigationDestination(icon: Icon(Icons.dashboard), label: 'Overview'),
           NavigationDestination(icon: Icon(Icons.campaign), label: 'Campaigns'),
+          NavigationDestination(icon: Icon(Icons.assignment), label: 'Requests'), // ADD THIS        
+
           NavigationDestination(icon: Icon(Icons.account_balance), label: 'Withdrawals'),
         ],
       ),

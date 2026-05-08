@@ -1,10 +1,10 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/auth/auth_provider.dart';
 import '../services/campaign_service.dart';
 import '../models/campaign.dart';
 import 'campaign_detail_screen.dart';
+import '../../../shared/widgets/report_dialog.dart'; // ADDED
 
 class CampaignListScreen extends StatefulWidget {
   const CampaignListScreen({super.key});
@@ -87,9 +87,9 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
             child: RefreshIndicator(
               onRefresh: _load,
               child: _loading
-              ? const Center(child: CircularProgressIndicator())
+             ? const Center(child: CircularProgressIndicator())
                 : _error!= null
-              ? Center(
+             ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -102,7 +102,7 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
                       ),
                     )
                 : _campaigns.isEmpty
-              ? Center(
+             ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -128,25 +128,65 @@ class _CampaignListScreenState extends State<CampaignListScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  // Image
-                                  if (c.imageUrl!= null)
-                                    Image.network(
-                                      c.imageUrl!,
-                                      height: 180,
-                                      width: double.infinity,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => Container(
-                                        height: 180,
-                                        color: Colors.grey[300],
-                                        child: const Icon(Icons.image_not_supported, size: 50),
+                                  // Image with Report Button Overlay
+                                  Stack(
+                                    children: [
+                                      if (c.imageUrl!= null)
+                                        Image.network(
+                                          c.imageUrl!,
+                                          height: 180,
+                                          width: double.infinity,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(
+                                            height: 180,
+                                            color: Colors.grey[300],
+                                            child: const Icon(Icons.image_not_supported, size: 50),
+                                          ),
+                                        )
+                                      else
+                                        Container(
+                                          height: 180,
+                                          color: Colors.grey[300],
+                                          child: const Center(child: Icon(Icons.campaign, size: 50)),
+                                        ),
+                                      // ADDED: Report button top-right
+                                      Positioned(
+                                        top: 8,
+                                        right: 8,
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.black54,
+                                            borderRadius: BorderRadius.circular(20),
+                                          ),
+                                          child: PopupMenuButton(
+                                            icon: const Icon(Icons.more_vert, color: Colors.white, size: 20),
+                                            itemBuilder: (_) => [
+                                              PopupMenuItem(
+                                                child: const ListTile(
+                                                  leading: Icon(Icons.flag, size: 20),
+                                                  title: Text('Report'),
+                                                  dense: true,
+                                                ),
+                                                onTap: () {
+                                                  // Use Future.delayed to avoid popup menu context issues
+                                                  Future.delayed(Duration.zero, () {
+                                                    showDialog(
+                                                      context: context,
+                                                      builder: (_) => ReportDialog(
+                                                        targetType: 'campaign',
+                                                        targetId: c.id,
+                                                        targetName: c.title,
+                                                      ),
+                                                    );
+                                                  });
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                       ),
-                                    )
-                                  else
-                                    Container(
-                                      height: 180,
-                                      color: Colors.grey[300],
-                                      child: const Center(child: Icon(Icons.campaign, size: 50)),
-                                    ),
+                                    ],
+                                  ),
                                   Padding(
                                     padding: const EdgeInsets.all(12),
                                     child: Column(

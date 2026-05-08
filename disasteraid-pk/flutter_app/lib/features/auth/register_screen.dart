@@ -36,33 +36,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  Future<void> _register() async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> _register() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    final email = _emailController.text.trim();
-    final phone = _phoneController.text.trim();
-    if (email.isEmpty && phone.isEmpty) {
-      setState(() => _error = 'Email or Phone required');
-      return;
-    }
-
-    setState(() { _loading = true; _error = null; });
-
-    try {
-      await context.read<AuthProvider>().register(
-        name: _nameController.text.trim(),
-        email: email.isEmpty? null : email,
-        phone: phone.isEmpty? null : phone,
-        password: _passwordController.text,
-        role: _role,
-      );
-      // Don't pop - AuthProvider.notifyListeners() triggers main.dart to show AppShell
-    } catch (e) {
-      setState(() => _error = e.toString().replaceAll('Exception: ', ''));
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  final email = _emailController.text.trim();
+  final phone = _phoneController.text.trim();
+  if (email.isEmpty && phone.isEmpty) {
+    setState(() => _error = 'Email or Phone required');
+    return;
   }
+
+  setState(() { _loading = true; _error = null; });
+
+  try {
+    await context.read<AuthProvider>().register(
+      name: _nameController.text.trim(),
+      email: email.isEmpty? null : email,
+      phone: phone.isEmpty? null : phone,
+      password: _passwordController.text,
+      role: _role,
+    );
+    // ADD THIS - notifyListeners() doesn't handle navigation
+    if (mounted) {
+      Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+    }
+  } catch (e) {
+    setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+  } finally {
+    if (mounted) setState(() => _loading = false);
+  }
+}
 
   @override
   Widget build(BuildContext context) {

@@ -7,7 +7,7 @@ const upload = require('../../utils/upload');
 
 const volunteerSchema = Joi.object({
   ngo_id: Joi.number().integer().required(),
-  location: Joi.string().min(3).required(),
+  location: Joi.string().min(3),
   skills: Joi.array().items(Joi.string()).default([]),
   availability: Joi.string().valid('WEEKENDS', 'WEEKDAYS', 'FLEXIBLE').default('FLEXIBLE'),
 });

@@ -123,3 +123,74 @@ Task | What | Why | Order
 4. *Crypto donations* - Legal gray area in PK. JazzCash first
 
 *Start with Phase 0.1 now.* Want me to write `BeneficiaryDashboard` + `AdminRequestsScreen` next?
+
+
+
+
+
+
+*DisasterAid PK - Complete Roadmap by Phase*
+
+### *Phase 1: Foundation ✅ DONE*
+Feature | Status
+Auth: JWT, Roles, Login/Register | ✅
+NGO Onboarding + Admin Approval | ✅
+User Profiles + Middleware | ✅
+DB Schema: users, ngo_profiles | ✅
+### *Phase 2: Core Donation Flow ✅ DONE*
+Feature | Status
+2.1 Campaigns CRUD | ✅
+2.2 Donations: MOCK/Stripe/JazzCash | ✅
+2.3 Manual Bank Transfer + Proof | ✅
+2.4 Admin Verify Donations | ✅
+2.5 PDF Receipts + Email | ✅
+2.6 NGO Wallet + Withdrawals | ✅
+2.7 Real-time Notifications | ✅ Code done, pending test
+### *Phase 3: Maps & Location ⏳ CURRENT*
+Feature | Status
+3.1 Maps UI + Pins for Campaigns/Aid Requests | ✅ Just built
+3.2 Current Location + "Near Me" Filter | ⏳ Next
+3.3 Distance sorting + Radius search API | ⏳
+3.4 Auto-fill lat/lng on campaign/aid create | ⏳
+3.5 Live Volunteer Tracking | Later
+### *Phase 4: Communication*
+Feature | Status
+4.1 In-App Chat: Volunteer ↔ Beneficiary | 📋
+4.2 Campaign Discussion Chat: Donors ↔ NGO | 📋
+4.3 Admin Broadcast Messages | 📋
+4.4 Read Receipts + Offline Queue | 📋
+### *Phase 5: Analytics & Admin Tools*
+Feature | Status
+5.1 Admin Dashboard Charts | 📋 API ready
+5.2 Heatmaps: Requests/Donations by Area | 📋
+5.3 NGO Leaderboards + Impact Reports | 📋
+5.4 Export CSV/PDF Reports | 📋
+5.5 Fraud Detection: Duplicate Requests | 📋
+### *Phase 6: Advanced Aid Management*
+Feature | Status
+6.1 Beneficiary Verification Flow | 📋
+6.2 Inventory Tracking per NGO | 📋
+6.3 Recurring Donations/Subscriptions | 📋
+6.4 Multi-item Aid Packages | 📋
+6.5 QR Code for Delivery Confirmation | 📋
+### *Phase 7: Polish & Scale*
+Feature | Status
+7.1 Push Notifications: FCM | 📋
+7.2 Offline Mode + Sync | 📋
+7.3 Multi-language: Urdu/English | 📋
+7.4 Performance: Caching, Pagination | 📋
+7.5 Security: Rate limiting, 2FA | 📋
+7.6 Deployment: Docker + CI/CD | 📋
+### *Phase 8: Public Features*
+Feature | Status
+8.1 Public Campaign Landing Pages | 📋
+8.2 Social Sharing + Campaign Embeds | 📋
+8.3 Guest Donations: No Login | 📋
+8.4 SMS Gateway for Alerts | 📋
+---
+
+*We are here:* Phase 3.1 done. *Next up: Phase 3.2 Current Location + Near Me*
+
+*After Phase 3:* Most logical order is *Phase 4 Chat* → *Phase 5 Analytics* → *Phase 6 Advanced* → *Phase 7 Polish*
+
+Ready to start Phase 3.2 "Near Me" location feature?

@@ -118,4 +118,24 @@ router.delete('/aid-requests/:id', auth('beneficiary'), async (req, res, next) =
   } catch (e) { next(e); }
 });
 
+// GET /api/aid-requests/map - For volunteer map
+router.get('/map', auth('volunteer'), async (req, res, next) => {
+  try {
+    const { status = 'PENDING' } = req.query;
+    const result = await db.query(`
+      SELECT a.id, a.beneficiary_name, a.category, a.urgency,
+             a.latitude, a.longitude, a.address, a.family_size,
+             c.title as campaign_title
+      FROM aid_requests a
+      JOIN campaigns c ON a.campaign_id = c.id
+      WHERE a.status = $1
+        AND a.latitude IS NOT NULL
+        AND a.longitude IS NOT NULL
+      ORDER BY a.created_at DESC
+      LIMIT 100
+    `, [status]);
+    res.json({ data: result.rows });
+  } catch (e) { next(e); }
+});
+
 module.exports = router;

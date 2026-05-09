@@ -27,12 +27,12 @@ router.post('/', auth('ngo'), upload.single('image'), async (req, res, next) => 
     const image_url = req.file? req.file.path : null;
     const { title, description, category, target_amount, location, end_date } = value;
 
-    const result = await db.query(
-      `INSERT INTO campaigns (ngo_id, title, description, category, target_amount, image_url, location, end_date, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'ACTIVE') RETURNING *`,
-      [ngo.rows[0].id, title, description, category, target_amount, image_url, location, end_date]
-    );
-    res.json({ data: result.rows[0] });
+const campaign = await client.query(
+  `INSERT INTO campaigns (ngo_id, title, description, category, target_amount, end_date, latitude, longitude, address)
+   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+  [ngo.rows[0].id, title, description, category, target_amount, end_date || null, latitude, longitude, address]
+);
+    res.json({ data: campaign.rows[0] });
   } catch (e) { next(e); }
 });
 
@@ -161,6 +161,25 @@ router.patch('/:id/status', auth('ngo'), async (req, res, next) => {
 
     if (!result.rows[0]) return res.status(403).json({ error: 'Campaign not found or not yours' });
     res.json({ data: result.rows[0] });
+  } catch (e) { next(e); }
+});
+
+
+// GET /api/campaigns/map - For map view
+router.get('/map', async (req, res, next) => {
+  try {
+    const result = await db.query(`
+      SELECT c.id, c.title, c.raised_amount, c.target_amount, c.category,
+             c.latitude, c.longitude, c.address, c.image_url,
+             n.org_name
+      FROM campaigns c
+      JOIN ngo_profiles n ON c.ngo_id = n.id
+      WHERE c.status = 'ACTIVE' 
+        AND c.latitude IS NOT NULL 
+        AND c.longitude IS NOT NULL
+      ORDER BY c.created_at DESC
+    `);
+    res.json({ data: result.rows });
   } catch (e) { next(e); }
 });
 

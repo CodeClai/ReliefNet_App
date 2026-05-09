@@ -8,9 +8,11 @@ import 'package:disasteraid_pk/features/auth/register_screen.dart';
 import 'package:disasteraid_pk/features/beneficiaries/screens/beneficiary_dashboard.dart';
 import 'package:disasteraid_pk/features/campaigns/screens/campaign_create_screen.dart';
 import 'package:disasteraid_pk/features/donor/donor_dashboard.dart';
+import 'package:disasteraid_pk/features/maps/campaign_map_screen.dart';
 import 'package:disasteraid_pk/features/ngo/ngo_dashboard.dart';
 import 'package:disasteraid_pk/features/ngo/ngo_onboard_screen.dart';
 import 'package:disasteraid_pk/features/volunteers/complete_profile_screen.dart';
+import 'package:disasteraid_pk/features/volunteers/volunteer_dashboard.dart';
 import 'package:disasteraid_pk/features/volunteers/volunteer_tasks_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -46,6 +48,7 @@ class MyApp extends StatelessWidget {
               '/ngo/onboard': (_) => const NgoOnboardScreen(),
               '/campaign/create': (_) => const CampaignCreateScreen(),
               '/volunteer/complete-profile': (_) => const CompleteProfileScreen(),
+              '/map' : (_) => const CampaignMapScreen(),
             },
           );
         },
@@ -135,7 +138,7 @@ class _AppShellState extends State<AppShell> {
             ? const NgoDashboard() 
             : NgoStatusScreen(status: _ngoStatus, onRefresh: _fetchNgoStatus),
         'donor' => const DonorDashboard(),
-        'volunteer' => const VolunteerTasksScreen(),
+        'volunteer' => const VolunteerDashboard(),
         'beneficiary' => const BeneficiaryDashboard(),
         _ => const LoginScreen(),
       },

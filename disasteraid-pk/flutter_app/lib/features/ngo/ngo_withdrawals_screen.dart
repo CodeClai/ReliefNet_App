@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../core/api/api_client.dart';
+import 'models/withdrawal.dart'; // ADD THIS
 
 class NgoWithdrawalsScreen extends StatefulWidget {
   const NgoWithdrawalsScreen({super.key});
@@ -11,7 +12,7 @@ class NgoWithdrawalsScreen extends StatefulWidget {
 }
 
 class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
-  List _withdrawals = [];
+  List<Withdrawal> _withdrawals = []; // CHANGED: List<Withdrawal>
   Map<String, dynamic>? _wallet;
   bool _loading = true;
   String? _error;
@@ -32,7 +33,9 @@ class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
       ]);
       setState(() {
         _wallet = results[0].data['data'];
-        _withdrawals = results[1].data['data'];
+        _withdrawals = (results[1].data['data'] as List) // CHANGED: Use model
+          .map((e) => Withdrawal.fromJson(e))
+          .toList();
         _loading = false;
       });
     } on DioException catch (e) {
@@ -61,7 +64,7 @@ class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
     }
   }
 
-  void _showWithdrawalDetails(Map w) {
+  void _showWithdrawalDetails(Withdrawal w) { // CHANGED: Withdrawal not Map
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -73,33 +76,33 @@ class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
           children: [
             Text('Withdrawal Details', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-            _buildDetailRow('Amount', 'PKR ${double.parse(w['amount'].toString()).toInt()}'),
-            _buildDetailRow('Status', w['status']),
-            _buildDetailRow('Bank', w['bank_name']),
-            _buildDetailRow('Account Title', w['account_title']),
-            _buildDetailRow('Account #', w['account_number']),
-            _buildDetailRow('IBAN', w['iban']),
-            _buildDetailRow('Requested', w['requested_at'].toString().split('T')[0]),
-            if (w['processed_at']!= null) _buildDetailRow('Processed', w['processed_at'].toString().split('T')[0]),
-            if (w['admin_notes']!= null)...[
+            _buildDetailRow('Amount', 'PKR ${w.amount.toInt()}'), // CHANGED: w.amount
+            _buildDetailRow('Status', w.status),
+            _buildDetailRow('Bank', w.bankName),
+            _buildDetailRow('Account Title', w.accountTitle),
+            _buildDetailRow('Account #', w.accountNumber),
+            _buildDetailRow('IBAN', w.iban),
+            _buildDetailRow('Requested', w.requestedAt.toString().split(' ')[0]),
+            if (w.processedAt!= null) _buildDetailRow('Processed', w.processedAt.toString().split(' ')[0]),
+            if (w.adminNotes!= null)...[
               const SizedBox(height: 12),
               Text('Admin Notes:', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700])),
               const SizedBox(height: 4),
-              Text(w['admin_notes']),
+              Text(w.adminNotes!),
             ],
-            if (w['rejection_reason']!= null)...[
+            if (w.rejectionReason!= null)...[
               const SizedBox(height: 12),
               Text('Rejection Reason:', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.red[700])),
               const SizedBox(height: 4),
-              Text(w['rejection_reason']),
+              Text(w.rejectionReason!),
             ],
-            if (w['transfer_proof_url']!= null)...[
+            if (w.transferProofUrl!= null)...[
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   onPressed: () async {
-                    final url = Uri.parse(w['transfer_proof_url']);
+                    final url = Uri.parse(w.transferProofUrl!);
                     if (await canLaunchUrl(url)) {
                       await launchUrl(url, mode: LaunchMode.externalApplication);
                     }
@@ -186,30 +189,30 @@ class _NgoWithdrawalsScreenState extends State<NgoWithdrawalsScreen> {
               ),
             ))
           else
-          ..._withdrawals.map((w) => Card(
+         ..._withdrawals.map((w) => Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: ListTile(
                 onTap: () => _showWithdrawalDetails(w),
                 leading: CircleAvatar(
-                  backgroundColor: _statusColor(w['status']).withOpacity(0.1),
-                  child: Icon(Icons.account_balance, color: _statusColor(w['status'])),
+                  backgroundColor: _statusColor(w.status).withOpacity(0.1),
+                  child: Icon(Icons.account_balance, color: _statusColor(w.status)),
                 ),
-                title: Text('PKR ${double.parse(w['amount'].toString()).toInt()}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                title: Text('PKR ${w.amount.toInt()}', style: const TextStyle(fontWeight: FontWeight.bold)), // CHANGED
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${w['bank_name']} - ${w['account_number']}'),
-                    Text(w['requested_at'].toString().split('T')[0], style: const TextStyle(fontSize: 12)), // FIXED: requested_at
-                    if (w['status'] == 'REJECTED' && w['rejection_reason']!= null)
-                      Text('Reason: ${w['rejection_reason']}', style: const TextStyle(color: Colors.red, fontSize: 12)),
-                    if (w['status'] == 'APPROVED')
+                    Text('${w.bankName} - ${w.accountNumber}'), // CHANGED
+                    Text(w.requestedAt.toString().split(' ')[0], style: const TextStyle(fontSize: 12)), // CHANGED
+                    if (w.status == 'REJECTED' && w.rejectionReason!= null)
+                      Text('Reason: ${w.rejectionReason}', style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    if (w.status == 'APPROVED')
                       Text('Awaiting transfer', style: TextStyle(color: Colors.blue[700], fontSize: 12)),
                   ],
                 ),
                 trailing: Chip(
-                  label: Text(w['status'], style: const TextStyle(fontSize: 11)),
-                  backgroundColor: _statusColor(w['status']).withOpacity(0.1),
-                  labelStyle: TextStyle(color: _statusColor(w['status'])),
+                  label: Text(w.status, style: const TextStyle(fontSize: 11)),
+                  backgroundColor: _statusColor(w.status).withOpacity(0.1),
+                  labelStyle: TextStyle(color: _statusColor(w.status)),
                   visualDensity: VisualDensity.compact,
                 ),
               ),
@@ -236,7 +239,30 @@ class _WithdrawDialogState extends State<_WithdrawDialog> {
   final _accountController = TextEditingController();
   final _ibanController = TextEditingController();
   bool _submitting = false;
+  bool _loadingBank = true; // ADD THIS
   final _api = ApiClient();
+
+  @override
+  void initState() { // ADD THIS
+    super.initState();
+    _loadBankDetails();
+  }
+
+  Future<void> _loadBankDetails() async { // ADD THIS
+    try {
+      final res = await _api.dio.get('/ngos/profile');
+      final profile = res.data['data'];
+      setState(() {
+        _bankController.text = profile['bank_name']?? '';
+        _titleController.text = profile['bank_account_title']?? '';
+        _accountController.text = profile['bank_account_number']?? '';
+        _ibanController.text = profile['bank_iban']?? '';
+        _loadingBank = false;
+      });
+    } catch (e) {
+      setState(() => _loadingBank = false);
+    }
+  }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -268,62 +294,64 @@ class _WithdrawDialogState extends State<_WithdrawDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Request Withdrawal'),
-      content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Available: PKR ${widget.balance.toInt()}', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _amountController,
-                decoration: const InputDecoration(labelText: 'Amount (PKR)', prefixText: 'PKR ', border: OutlineInputBorder()),
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                validator: (v) {
-                  if (v == null || v.isEmpty) return 'Required';
-                  final amt = double.tryParse(v);
-                  if (amt == null || amt < 100) return 'Minimum 100 PKR';
-                  if (amt > widget.balance) return 'Insufficient balance';
-                  return null;
-                },
+      content: _loadingBank // CHANGED: Show loader while fetching bank details
+        ? const SizedBox(height: 100, child: Center(child: CircularProgressIndicator()))
+          : SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('Available: PKR ${widget.balance.toInt()}', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _amountController,
+                      decoration: const InputDecoration(labelText: 'Amount (PKR)', prefixText: 'PKR ', border: OutlineInputBorder()),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Required';
+                        final amt = double.tryParse(v);
+                        if (amt == null || amt < 100) return 'Minimum 100 PKR';
+                        if (amt > widget.balance) return 'Insufficient balance';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _bankController,
+                      decoration: const InputDecoration(labelText: 'Bank Name', border: OutlineInputBorder()),
+                      validator: (v) => v!.trim().length < 3? 'Min 3 characters' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _titleController,
+                      decoration: const InputDecoration(labelText: 'Account Title', border: OutlineInputBorder()),
+                      validator: (v) => v!.trim().length < 3? 'Min 3 characters' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _accountController,
+                      decoration: const InputDecoration(labelText: 'Account Number', border: OutlineInputBorder()),
+                      keyboardType: TextInputType.number,
+                      validator: (v) => v!.trim().length < 8? 'Min 8 digits' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _ibanController,
+                      decoration: const InputDecoration(labelText: 'IBAN (24 chars)', border: OutlineInputBorder()),
+                      textCapitalization: TextCapitalization.characters,
+                      maxLength: 24,
+                      validator: (v) {
+                        if (v!.trim().length!= 24) return 'IBAN must be 24 characters';
+                        if (!v.startsWith('PK')) return 'IBAN must start with PK';
+                        return null;
+                      },
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _bankController,
-                decoration: const InputDecoration(labelText: 'Bank Name', border: OutlineInputBorder()),
-                validator: (v) => v!.trim().length < 3? 'Min 3 characters' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _titleController,
-                decoration: const InputDecoration(labelText: 'Account Title', border: OutlineInputBorder()),
-                validator: (v) => v!.trim().length < 3? 'Min 3 characters' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _accountController,
-                decoration: const InputDecoration(labelText: 'Account Number', border: OutlineInputBorder()),
-                keyboardType: TextInputType.number,
-                validator: (v) => v!.trim().length < 8? 'Min 8 digits' : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _ibanController,
-                decoration: const InputDecoration(labelText: 'IBAN (24 chars)', border: OutlineInputBorder()),
-                textCapitalization: TextCapitalization.characters,
-                maxLength: 24,
-                validator: (v) {
-                  if (v!.trim().length!= 24) return 'IBAN must be 24 characters';
-                  if (!v.startsWith('PK')) return 'IBAN must start with PK';
-                  return null;
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
+            ),
       actions: [
         TextButton(onPressed: _submitting? null : () => Navigator.pop(context), child: const Text('Cancel')),
         FilledButton(onPressed: _submitting? null : _submit, child: _submitting? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Submit')),

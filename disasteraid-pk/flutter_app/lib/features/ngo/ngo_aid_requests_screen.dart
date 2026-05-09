@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:dio/dio.dart';
+import 'package:intl/intl.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../core/api/api_client.dart';
+import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/error_state.dart';
 
 class NgoAidRequestsScreen extends StatefulWidget {
   const NgoAidRequestsScreen({super.key});
@@ -12,8 +15,10 @@ class _NgoAidRequestsScreenState extends State<NgoAidRequestsScreen> {
   List _requests = [];
   List _volunteers = [];
   bool _loading = true;
+  String? _error;
   String _filter = 'APPROVED';
   final _api = ApiClient();
+  final _currency = NumberFormat.currency(locale: 'en_PK', symbol: 'PKR ', decimalDigits: 0);
 
   @override
   void initState() {
@@ -22,19 +27,23 @@ class _NgoAidRequestsScreenState extends State<NgoAidRequestsScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _loading = true);
+    setState(() { _loading = true; _error = null; });
     try {
       final results = await Future.wait([
         _api.dio.get('/ngos/aid-requests', queryParameters: {'status': _filter}),
         _api.dio.get('/ngos/volunteers'),
       ]);
-      setState(() {
-        _requests = results[0].data['data'];
-        _volunteers = results[1].data['data'];
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _requests = results[0].data as List; // ApiClient unwraps
+          _volunteers = results[1].data as List;
+          _loading = false;
+        });
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _error = e.message; _loading = false; });
     } catch (e) {
-      setState(() => _loading = false);
+      if (mounted) setState(() { _error = 'Failed to load requests'; _loading = false; });
     }
   }
 
@@ -46,13 +55,15 @@ class _NgoAidRequestsScreenState extends State<NgoAidRequestsScreen> {
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Assigned to $volunteerName'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text('Assigned to $volunteerName'),
+            backgroundColor: Colors.green,
+          ),
         );
         _loadData();
       }
-    } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Assignment failed';
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.message);
     }
   }
 
@@ -61,14 +72,20 @@ class _NgoAidRequestsScreenState extends State<NgoAidRequestsScreen> {
       await _api.dio.patch('/ngos/aid-requests/$requestId', data: {'status': newStatus});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Status updated to $newStatus'), backgroundColor: Colors.blue),
+          SnackBar(
+            content: Text('Status updated to $newStatus'),
+            backgroundColor: Colors.blue,
+          ),
         );
         _loadData();
       }
-    } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Update failed';
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.message);
     }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Color _urgencyColor(String urgency) {
@@ -80,13 +97,28 @@ class _NgoAidRequestsScreenState extends State<NgoAidRequestsScreen> {
     }
   }
 
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'APPROVED': return Colors.blue;
+      case 'ASSIGNED': return Colors.teal;
+      case 'DELIVERED': return Colors.purple;
+      case 'FULFILLED': return Colors.green;
+      case 'REJECTED': return Colors.red;
+      default: return Colors.grey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
     return Column(
       children: [
+        // Filter Chips
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
             children: ['APPROVED', 'ASSIGNED', 'DELIVERED', 'FULFILLED', 'REJECTED'].map((f) =>
               Padding(
@@ -101,112 +133,294 @@ class _NgoAidRequestsScreenState extends State<NgoAidRequestsScreen> {
           ),
         ),
         Expanded(
-          child: _loading
-         ? const Center(child: CircularProgressIndicator())
-            : _requests.isEmpty
-           ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _buildBody(cs, tt),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBody(ColorScheme cs, TextTheme tt) {
+    if (_loading) return _buildShimmer();
+    if (_error!= null) return ErrorState(message: _error!, onRetry: _loadData);
+    if (_requests.isEmpty) return _buildEmptyState(cs, tt);
+    return _buildRequestList(cs, tt);
+  }
+
+  Widget _buildShimmer() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 4,
+      itemBuilder: (_, __) => Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: Container(
+          height: 140,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(ColorScheme cs, TextTheme tt) {
+    return EmptyState(
+      icon: Icons.assignment_outlined,
+      title: 'No $_filter requests',
+      subtitle: _filter == 'APPROVED'
+      ? 'Approve beneficiary requests to assign volunteers'
+        : 'Requests will appear here',
+    );
+  }
+
+  Widget _buildRequestList(ColorScheme cs, TextTheme tt) {
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _requests.length,
+        itemBuilder: (context, i) {
+          final r = _requests[i];
+          final items = (r['items_needed'] as List?)?.join(', ')?? r['category']?? 'Aid';
+          final urgencyColor = _urgencyColor(r['urgency']);
+          final statusColor = _statusColor(r['status']);
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: cs.outlineVariant),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                // Urgency Bar
+                Container(height: 4, color: urgencyColor),
+                ExpansionTile(
+                  leading: CircleAvatar(
+                    backgroundColor: urgencyColor.withOpacity(0.15),
+                    child: Text(
+                      r['urgency'][0],
+                      style: TextStyle(
+                        color: urgencyColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  title: Text(
+                    r['beneficiary_name']?? 'Unknown',
+                    style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.assignment_outlined, size: 80, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text('No $_filter requests', style: const TextStyle(fontSize: 18)),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${r['category']} • Family: ${r['family_size']}',
+                        style: tt.bodySmall,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        r['campaign_title']?? 'General Request',
+                        style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                      ),
                     ],
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadData,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _requests.length,
-                    itemBuilder: (context, i) {
-                      final r = _requests[i];
-                      final items = (r['items_needed'] as List?)?.join(', ')?? r['category']?? 'Aid';
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ExpansionTile(
-                          leading: CircleAvatar(
-                            backgroundColor: _urgencyColor(r['urgency']).withOpacity(0.1),
-                            child: Text(r['urgency'][0], style: TextStyle(color: _urgencyColor(r['urgency']), fontWeight: FontWeight.bold)),
-                          ),
-                          title: Text(r['beneficiary_name']?? 'Unknown', style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('${r['category']} - Family: ${r['family_size']}'),
-                              Text(r['campaign_title']?? 'General Request', style: const TextStyle(fontSize: 12)),
-                              Text(r['location']?? 'Unknown', style: const TextStyle(fontSize: 12)),
-                            ],
-                          ),
-                          trailing: Chip(
-                            label: Text(r['status'], style: const TextStyle(fontSize: 11)),
-                            backgroundColor: Colors.blue[50],
-                          ),
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      r['status'],
+                      style: tt.labelSmall?.copyWith(
+                        color: statusColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 1),
+                          const SizedBox(height: 16),
+
+                          // Details
+                          _detailRow(Icons.inventory_2_outlined, 'Items Needed', items),
+                          const SizedBox(height: 12),
+                          _detailRow(Icons.phone_outlined, 'Phone', r['beneficiary_phone']?? 'N/A'),
+                          const SizedBox(height: 12),
+                          _detailRow(Icons.location_on_outlined, 'Location', r['location']?? 'Unknown'),
+                          const SizedBox(height: 12),
+                          _detailRow(Icons.notes_outlined, 'Description', r['description']?? 'No description'),
+                          const SizedBox(height: 16),
+
+                          // Assigned Volunteer
+                          if (r['volunteer_name']!= null)...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.green.withOpacity(0.3)),
+                              ),
+                              child: Row(
                                 children: [
-                                  Text('Items: $items'),
-                                  const SizedBox(height: 8),
-                                  Text('Phone: ${r['beneficiary_phone']?? 'N/A'}'),
-                                  const SizedBox(height: 8),
-                                  Text('Description:', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700])),
-                                  const SizedBox(height: 4),
-                                  Text(r['description']?? 'No description'),
-                                  const SizedBox(height: 12),
-                                  if (r['volunteer_name']!= null)...[
-                                    Text('Assigned to: ${r['volunteer_name']} - ${r['volunteer_phone']?? 'N/A'}',
-                                      style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w500)),
-                                    const SizedBox(height: 12),
-                                  ],
-                                  if (_filter == 'APPROVED')...[
-                                    Text('Assign Volunteer:', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                    const SizedBox(height: 8),
-                                  ..._volunteers.map((v) => ListTile(
-                                      dense: true,
-                                      leading: const Icon(Icons.person, size: 20),
-                                      title: Text(v['name']?? 'Unknown', style: const TextStyle(fontSize: 14)),
-                                      subtitle: Text(v['phone']?? '', style: const TextStyle(fontSize: 12)),
-                                      trailing: FilledButton(
-                                        onPressed: () => _assignVolunteer(r['id'], v['id'], v['name']),
-                                        child: const Text('Assign'),
-                                      ),
-                                    )),
-                                    if (_volunteers.isEmpty)
-                                      const Text('No approved volunteers yet', style: TextStyle(color: Colors.orange)),
-                                  ],
-                                  if (_filter == 'ASSIGNED')...[
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: FilledButton.icon(
-                                        onPressed: () => _updateStatus(r['id'], 'DELIVERED'),
-                                        icon: const Icon(Icons.local_shipping),
-                                        label: const Text('Mark as Delivered'),
-                                      ),
+                                  Icon(Icons.person_outline, color: Colors.green[700], size: 20),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Assigned to',
+                                          style: tt.labelSmall?.copyWith(color: Colors.green[700]),
+                                        ),
+                                        Text(
+                                          '${r['volunteer_name']} • ${r['volunteer_phone']?? 'N/A'}',
+                                          style: tt.bodyMedium?.copyWith(
+                                            color: Colors.green[700],
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                  if (_filter == 'DELIVERED')...[
-                                    SizedBox(
-                                      width: double.infinity,
-                                      child: FilledButton.icon(
-                                        onPressed: () => _updateStatus(r['id'], 'FULFILLED'),
-                                        icon: const Icon(Icons.check_circle),
-                                        label: const Text('Mark as Fulfilled'),
-                                        style: FilledButton.styleFrom(backgroundColor: Colors.green),
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 ],
                               ),
                             ),
+                            const SizedBox(height: 16),
                           ],
-                        ),
-                      );
-                    },
-                  ),
+
+                          // Actions
+                          if (_filter == 'APPROVED')...[
+                            Text(
+                              'Assign Volunteer',
+                              style: tt.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 12),
+                            if (_volunteers.isEmpty)
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'No approved volunteers available',
+                                        style: tt.bodySmall?.copyWith(color: Colors.orange[700]),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else
+                           ..._volunteers.map((v) => Card(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    elevation: 0,
+                                    color: cs.surfaceVariant,
+                                    child: ListTile(
+                                      dense: true,
+                                      leading: CircleAvatar(
+                                        backgroundColor: cs.primaryContainer,
+                                        child: Text(
+                                          v['name']?[0].toUpperCase()?? 'V',
+                                          style: TextStyle(color: cs.onPrimaryContainer),
+                                        ),
+                                      ),
+                                      title: Text(v['name']?? 'Unknown', style: tt.bodyMedium),
+                                      subtitle: Text(v['phone']?? '', style: tt.bodySmall),
+                                      trailing: FilledButton(
+                                        onPressed: () => _assignVolunteer(r['id'], v['id'], v['name']),
+                                        style: FilledButton.styleFrom(
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
+                                        child: const Text('Assign'),
+                                      ),
+                                    ),
+                                  )),
+                          ],
+
+                          if (_filter == 'ASSIGNED')...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: () => _updateStatus(r['id'], 'DELIVERED'),
+                                icon: const Icon(Icons.local_shipping_outlined),
+                                label: const Text('Mark as Delivered'),
+                                style: FilledButton.styleFrom(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
+                          ],
+
+                          if (_filter == 'DELIVERED')...[
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: () => _updateStatus(r['id'], 'FULFILLED'),
+                                icon: const Icon(Icons.check_circle_outline),
+                                label: const Text('Mark as Fulfilled'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: cs.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
         ),
       ],
     );

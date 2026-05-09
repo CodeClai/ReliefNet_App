@@ -11,8 +11,6 @@ class Withdrawal {
   final String? transferProofUrl;
   final DateTime requestedAt;
   final DateTime? processedAt;
-  final String? requesterEmail;
-  final String? orgName;
 
   Withdrawal.fromJson(Map<String, dynamic> json)
       : id = json['id'],
@@ -26,7 +24,5 @@ class Withdrawal {
         rejectionReason = json['rejection_reason'],
         transferProofUrl = json['transfer_proof_url'],
         requestedAt = DateTime.parse(json['requested_at']),
-        processedAt = json['processed_at']!= null? DateTime.parse(json['processed_at']) : null,
-        requesterEmail = json['requester_email'],
-        orgName = json['org_name'];
+        processedAt = json['processed_at'] != null? DateTime.parse(json['processed_at']) : null;
 }

@@ -16,13 +16,13 @@ const registerSchema = Joi.object({
 router.post('/register', async (req, res, next) => {
   try {
     const { error, value } = registerSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
     const { email, phone, password, role, name } = value;
     const hash = await bcrypt.hash(password, 10);
 
     const roleRes = await db.query('SELECT id FROM roles WHERE name=$1', [role]);
-    if (!roleRes.rows[0]) return res.status(400).json({ error: 'Invalid role' });
+    if (!roleRes.rows[0]) return res.error('Invalid role', 400);
 
     const user = await db.query(
       'INSERT INTO users (email, phone, password_hash, role_id, name) VALUES ($1,$2,$3,$4,$5) RETURNING id,name,email,phone,role_id',
@@ -30,9 +30,9 @@ router.post('/register', async (req, res, next) => {
     );
 
     const token = jwt.sign({ id: user.rows[0].id, role }, process.env.JWT_SECRET, { expiresIn: '24h' });
-    res.status(201).json({ data: { token, user: {...user.rows[0], role } } });
+    res.success({ token, user: {...user.rows[0], role } }, 201);
   } catch (e) {
-    if (e.code === '23505') return res.status(409).json({ error: 'Email or phone already exists' });
+    if (e.code === '23505') return res.error('Email or phone already exists', 409);
     next(e);
   }
 });
@@ -46,12 +46,12 @@ router.post('/login', async (req, res, next) => {
     );
 
     if (!user.rows[0] ||!await bcrypt.compare(password, user.rows[0].password_hash)) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.error('Invalid credentials', 401);
     }
 
     const token = jwt.sign({ id: user.rows[0].id, role: user.rows[0].role }, process.env.JWT_SECRET, { expiresIn: '24h' });
     const { password_hash,...userData } = user.rows[0];
-    res.json({ data: { token, user: userData } });
+    res.success({ token, user: userData });
   } catch (e) { next(e); }
 });
 
@@ -62,8 +62,8 @@ router.get('/me', auth(), async (req, res, next) => {
       'SELECT u.id, u.name, u.email, u.phone, u.locale, r.name as role FROM users u JOIN roles r ON u.role_id=r.id WHERE u.id=$1',
       [req.user.id]
     );
-    if (!user.rows[0]) return res.status(404).json({ error: 'User not found' });
-    res.json({ data: user.rows[0] });
+    if (!user.rows[0]) return res.error('User not found', 404);
+    res.success(user.rows[0]);
   } catch (e) { next(e); }
 });
 
@@ -72,7 +72,7 @@ router.patch('/fcm-token', auth(), async (req, res, next) => {
   try {
     const { fcm_token } = req.body;
     await db.query('UPDATE users SET fcm_token=$1 WHERE id=$2', [fcm_token, req.user.id]);
-    res.json({ success: true });
+    res.success({ message: 'FCM token updated' });
   } catch (e) { next(e); }
 });
 

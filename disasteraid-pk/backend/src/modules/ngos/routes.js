@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const auth = require('../../middleware/auth');
 const db = require('../../config/db');
-const upload = require('../../utils/upload'); // This should be multer-storage-cloudinary
+const upload = require('../../utils/upload');
 const Joi = require('joi');
 
 const onboardSchema = Joi.object({
@@ -20,7 +20,7 @@ router.get('/', async (req, res, next) => {
     const result = await db.query(
       `SELECT id, org_name, address as city FROM ngo_profiles WHERE status='APPROVED' ORDER BY org_name`
     );
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -28,15 +28,14 @@ router.get('/', async (req, res, next) => {
 router.post('/onboard', auth('ngo'), upload.array('docs', 5), async (req, res, next) => {
   try {
     const { error, value } = onboardSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
     const existing = await db.query('SELECT status FROM ngo_profiles WHERE user_id=$1', [req.user.id]);
-    if (existing.rows[0]?.status === 'PENDING') return res.status(400).json({ error: 'Already submitted for review' });
-    if (existing.rows[0]?.status === 'APPROVED') return res.status(400).json({ error: 'Already verified' });
+    if (existing.rows[0]?.status === 'PENDING') return res.error('Already submitted for review', 400);
+    if (existing.rows[0]?.status === 'APPROVED') return res.error('Already verified', 400);
 
-    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'At least 1 document required' });
+    if (!req.files || req.files.length === 0) return res.error('At least 1 document required', 400);
 
-    // Cloudinary returns full URLs in req.files[].path
     const urls = req.files.map(f => f.path);
     const { org_name, registration_number, address, contact_person, mission, email, phone } = value;
 
@@ -47,7 +46,7 @@ router.post('/onboard', auth('ngo'), upload.array('docs', 5), async (req, res, n
        org_name=$2, registration_number=$3, address=$4, contact_person=$5, mission=$6, email=$7, phone=$8, docs_url=$9, status='PENDING', updated_at=NOW()`,
       [req.user.id, org_name, registration_number, address, contact_person, mission, email, phone, urls]
     );
-    res.json({ success: true, message: 'Submitted for admin approval' });
+    res.success({ message: 'Submitted for admin approval' }, 201);
   } catch (e) { next(e); }
 });
 
@@ -62,7 +61,7 @@ router.get('/me', auth('ngo'), async (req, res, next) => {
       LEFT JOIN ngo_wallets w ON w.ngo_id = n.id
       WHERE n.user_id=$1
     `, [req.user.id]);
-    res.json({ data: result.rows[0] || null });
+    res.success(result.rows[0] || null);
   } catch (e) { next(e); }
 });
 
@@ -70,18 +69,15 @@ router.get('/me', auth('ngo'), async (req, res, next) => {
 router.get('/profile', auth('ngo'), async (req, res, next) => {
   try {
     const result = await db.query('SELECT * FROM ngo_profiles WHERE user_id=$1', [req.user.id]);
-    res.json({ data: result.rows[0] || null });
+    res.success(result.rows[0] || null);
   } catch (e) { next(e); }
 });
-
-
-
 
 // GET /api/ngo/dashboard/stats - KPI cards
 router.get('/dashboard/stats', auth('ngo'), async (req, res, next) => {
   try {
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.status(403).json({ error: 'NGO profile not found' });
+    if (!ngo.rows[0]) return res.error('NGO profile not found', 403);
     const ngoId = ngo.rows[0].id;
 
     const result = await db.query(`
@@ -100,14 +96,12 @@ router.get('/dashboard/stats', auth('ngo'), async (req, res, next) => {
 
     const stats = result.rows[0];
     const deliveryRate = stats.total_aid_requests > 0
-    ? ((stats.delivered_count / stats.total_aid_requests) * 100).toFixed(1)
+     ? ((stats.delivered_count / stats.total_aid_requests) * 100).toFixed(1)
       : 0;
 
-    res.json({
-      data: {
-      ...stats,
-        delivery_rate: parseFloat(deliveryRate)
-      }
+    res.success({
+     ...stats,
+      delivery_rate: parseFloat(deliveryRate)
     });
   } catch (e) { next(e); }
 });
@@ -117,7 +111,7 @@ router.get('/dashboard/chart', auth('ngo'), async (req, res, next) => {
   try {
     const days = parseInt(req.query.days) || 30;
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.status(403).json({ error: 'NGO profile not found' });
+    if (!ngo.rows[0]) return res.error('NGO profile not found', 403);
 
     const result = await db.query(`
       SELECT
@@ -133,7 +127,7 @@ router.get('/dashboard/chart', auth('ngo'), async (req, res, next) => {
       ORDER BY date ASC
     `, [ngo.rows[0].id]);
 
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -141,7 +135,7 @@ router.get('/dashboard/chart', auth('ngo'), async (req, res, next) => {
 router.get('/dashboard/recent', auth('ngo'), async (req, res, next) => {
   try {
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.status(403).json({ error: 'NGO profile not found' });
+    if (!ngo.rows[0]) return res.error('NGO profile not found', 403);
 
     const result = await db.query(`
       SELECT d.id, d.amount, d.verified_at, d.donor_name, c.title as campaign_title
@@ -152,10 +146,8 @@ router.get('/dashboard/recent', auth('ngo'), async (req, res, next) => {
       LIMIT 5
     `, [ngo.rows[0].id]);
 
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
-
-
 
 module.exports = router;

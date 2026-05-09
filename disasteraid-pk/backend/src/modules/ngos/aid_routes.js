@@ -3,10 +3,7 @@ const router = express.Router();
 const db = require('../../config/db');
 const auth = require('../../middleware/auth');
 const Joi = require('joi');
-
-const upload = require('../../utils/upload'); // multer config
-
-
+const upload = require('../../utils/upload');
 
 const updateRequestSchema = Joi.object({
   status: Joi.string().valid('APPROVED', 'REJECTED', 'ASSIGNED').required(),
@@ -18,9 +15,9 @@ const updateRequestSchema = Joi.object({
 router.get('/aid-requests', auth('ngo'), async (req, res, next) => {
   try {
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.status(400).json({ error: 'NGO profile not found' });
+    if (!ngo.rows[0]) return res.error('NGO profile not found', 400);
 
-    const { status } = req.query; // FIXED: add filter
+    const { status } = req.query;
     let query = `
       SELECT a.*, c.title as campaign_title, c.image_url,
              u.name as beneficiary_name, u.phone as beneficiary_phone,
@@ -37,7 +34,7 @@ router.get('/aid-requests', auth('ngo'), async (req, res, next) => {
     query += ' ORDER BY CASE a.urgency WHEN \'CRITICAL\' THEN 1 WHEN \'HIGH\' THEN 2 WHEN \'MEDIUM\' THEN 3 ELSE 4 END, a.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -45,19 +42,17 @@ router.get('/aid-requests', auth('ngo'), async (req, res, next) => {
 router.patch('/aid-requests/:id', auth('ngo'), async (req, res, next) => {
   try {
     const { error, value } = updateRequestSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
     const { status, volunteer_id, rejection_reason } = value;
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.status(400).json({ error: 'NGO profile not found' });
+    if (!ngo.rows[0]) return res.error('NGO profile not found', 400);
 
-    // If assigning volunteer, verify they belong to this NGO
     if (volunteer_id) {
       const vol = await db.query('SELECT id FROM volunteer_profiles WHERE id=$1 AND ngo_id=$2', [volunteer_id, ngo.rows[0].id]);
-      if (!vol.rows[0]) return res.status(400).json({ error: 'Volunteer not found or not in your NGO' });
+      if (!vol.rows[0]) return res.error('Volunteer not found or not in your NGO', 400);
     }
 
-    // Update status - only allow transitions from PENDING
     const result = await db.query(
       `UPDATE aid_requests SET
         status=$1,
@@ -69,8 +64,8 @@ router.patch('/aid-requests/:id', auth('ngo'), async (req, res, next) => {
       [status, volunteer_id || null, rejection_reason || null, req.params.id, ngo.rows[0].id]
     );
 
-    if (!result.rows[0]) return res.status(400).json({ error: 'Request not found or already processed' });
-    res.json({ success: true, data: result.rows[0] });
+    if (!result.rows[0]) return res.error('Request not found or already processed', 400);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 
@@ -78,7 +73,7 @@ router.patch('/aid-requests/:id', auth('ngo'), async (req, res, next) => {
 router.get('/volunteers', auth('ngo'), async (req, res, next) => {
   try {
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.json({ data: [] });
+    if (!ngo.rows[0]) return res.success([]);
 
     const result = await db.query(`
       SELECT v.*, u.name, u.email, u.phone,
@@ -91,7 +86,7 @@ router.get('/volunteers', auth('ngo'), async (req, res, next) => {
       GROUP BY v.id, u.id
       ORDER BY completed_tasks DESC
     `, [ngo.rows[0].id]);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -110,12 +105,10 @@ router.get('/aid-requests/:id', auth('ngo'), async (req, res, next) => {
       WHERE a.id = $1 AND a.ngo_id = $2
     `, [req.params.id, ngo.rows[0].id]);
 
-    if (!result.rows[0]) return res.status(404).json({ error: 'Request not found' });
-    res.json({ data: result.rows[0] });
+    if (!result.rows[0]) return res.error('Request not found', 404);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
-
-
 
 // PATCH /api/aids/:id/deliver - Mark as delivered with photo proof
 router.patch('/:id/deliver', auth('volunteer'), upload.single('proof'), async (req, res, next) => {
@@ -128,7 +121,6 @@ router.patch('/:id/deliver', auth('volunteer'), upload.single('proof'), async (r
     if (aid.rows[0].status!== 'APPROVED') throw new Error('Aid must be APPROVED first');
     if (!req.file) throw new Error('Delivery photo required');
 
-    // Only assigned volunteer or NGO owner can mark delivered
     const isVolunteer = aid.rows[0].assigned_volunteer_id === req.user.id;
     const ngo = await client.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
     const isNgoOwner = ngo.rows[0]?.id === aid.rows[0].ngo_id;
@@ -148,10 +140,10 @@ router.patch('/:id/deliver', auth('volunteer'), upload.single('proof'), async (r
     `, [req.file.path, req.user.id, req.body.notes || null, req.params.id]);
 
     await client.query('COMMIT');
-    res.json({ data: result.rows[0], message: 'Aid marked as delivered' });
+    res.success(result.rows[0]);
   } catch (e) {
     await client.query('ROLLBACK');
-    res.status(400).json({ error: e.message });
+    next(e);
   } finally {
     client.release();
   }
@@ -170,13 +162,11 @@ router.get('/:id/proof', auth(), async (req, res, next) => {
       WHERE ar.id = $1
     `, [req.params.id]);
 
-    if (!result.rows[0]) return res.status(404).json({ error: 'Aid request not found' });
-    if (!result.rows[0].delivery_proof_url) return res.status(404).json({ error: 'No delivery proof uploaded yet' });
+    if (!result.rows[0]) return res.error('Aid request not found', 404);
+    if (!result.rows[0].delivery_proof_url) return res.error('No delivery proof uploaded yet', 404);
 
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
-
-
 
 module.exports = router;

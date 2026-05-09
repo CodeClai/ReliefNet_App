@@ -1,6 +1,6 @@
 import 'package:disasteraid_pk/core/api/api_client.dart';
 import 'package:disasteraid_pk/core/auth/auth_provider.dart';
-import 'package:disasteraid_pk/core/services/socket_serivce.dart';
+import 'package:disasteraid_pk/core/services/socket_service.dart';
 import 'package:disasteraid_pk/features/admin/admin_dashboard.dart';
 import 'package:disasteraid_pk/features/auth/login_screen.dart';
 import 'package:disasteraid_pk/features/auth/register_screen.dart';

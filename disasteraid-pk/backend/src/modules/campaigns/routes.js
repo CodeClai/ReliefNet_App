@@ -4,6 +4,9 @@ const db = require('../../config/db');
 const auth = require('../../middleware/auth');
 const upload = require('../../utils/upload');
 const Joi = require('joi');
+// const cloudinary = require('../../utils/upload');
+const fs = require('fs');
+
 const campaignSchema = Joi.object({
   title: Joi.string().min(5).max(200).required(),
   description: Joi.string().min(20).max(5000).required(),
@@ -11,16 +14,16 @@ const campaignSchema = Joi.object({
   target_amount: Joi.number().integer().min(1000).max(10000000).required(),
   location: Joi.string().min(3).max(200).required(),
   end_date: Joi.date().min('now').required(),
-  latitude: Joi.number().min(-90).max(90).allow(null), // ADD THIS
-  longitude: Joi.number().min(-180).max(180).allow(null), // ADD THIS
-  address: Joi.string().max(500).allow(null, '') // ADD THIS
+  latitude: Joi.number().min(-90).max(90).allow(null),
+  longitude: Joi.number().min(-180).max(180).allow(null),
+  address: Joi.string().max(500).allow(null, '')
 });
 
 // POST /api/campaigns - Create campaign
 router.post('/', auth('ngo'), upload.single('image'), async (req, res, next) => {
   try {
     const { error, value } = campaignSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.fail(error.details[0].message, 400);
 
     const { title, description, category, target_amount, location, end_date, latitude, longitude, address } = value;
 
@@ -29,14 +32,17 @@ router.post('/', auth('ngo'), upload.single('image'), async (req, res, next) => 
       [req.user.id, 'APPROVED']
     );
     if (!ngoCheck.rows[0]) {
-      return res.status(403).json({ error: 'NGO not approved yet' });
+      return res.fail('NGO not approved yet', 403);
     }
 
     let image_url = null;
     if (req.file) {
-      const upload = await cloudinary.uploader.upload(req.file.path, { folder: 'campaigns' });
-      image_url = upload.secure_url;
-      fs.unlinkSync(req.file.path);
+      try {
+        const uploadResult = await cloudinary.uploader.upload(req.file.path, { folder: 'campaigns' });
+        image_url = uploadResult.secure_url;
+      } finally {
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      }
     }
 
     const result = await db.query(
@@ -45,7 +51,7 @@ router.post('/', auth('ngo'), upload.single('image'), async (req, res, next) => 
       [ngoCheck.rows[0].id, title, description, category, target_amount, location, latitude, longitude, address, image_url, end_date]
     );
 
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0], 201);
   } catch (e) { next(e); }
 });
 
@@ -74,7 +80,7 @@ router.get('/', async (req, res, next) => {
     query += ' GROUP BY c.id, n.id, u.id ORDER BY c.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -82,101 +88,19 @@ router.get('/', async (req, res, next) => {
 router.get('/my', auth('ngo'), async (req, res, next) => {
   try {
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.json({ data: [] });
+    if (!ngo.rows[0]) return res.success([]);
 
     const result = await db.query(`
       SELECT c.*, COUNT(DISTINCT d.user_id) as donor_count
       FROM campaigns c
-      LEFT JOIN donations d ON d.campaign_id = c.id
+      LEFT JOIN donations d ON d.campaign_id = c.id AND d.status = 'completed'
       WHERE c.ngo_id = $1
       GROUP BY c.id
       ORDER BY c.created_at DESC
     `, [ngo.rows[0].id]);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
-
-// GET /api/campaigns/:id
-router.get('/:id', async (req, res, next) => {
-  try {
-    const result = await db.query(`
-      SELECT
-        c.id,
-        c.ngo_id,
-        c.title,
-        c.description,
-        c.category,
-        c.target_amount,
-        c.raised_amount,
-        c.image_url,
-        c.location,
-        c.status,
-        c.created_at,
-        c.end_date,
-        n.org_name,
-        n.contact_person,
-        n.address as ngo_address,
-        n.mission,
-        u.email as ngo_email,
-        u.phone as ngo_phone,
-        u.name as ngo_contact_name,
-        COUNT(d.id) as donor_count
-      FROM campaigns c
-      JOIN ngo_profiles n ON c.ngo_id = n.id
-      JOIN users u ON n.user_id = u.id
-      LEFT JOIN donations d ON d.campaign_id = c.id AND d.status = 'completed'
-      WHERE c.id = $1
-      GROUP BY c.id, n.id, u.id
-    `, [req.params.id]);
-
-    if (!result.rows[0]) return res.status(404).json({ error: 'Campaign not found' });
-    res.json({ data: result.rows[0] });
-  } catch (e) { next(e); }
-});
-
-
-// PUT /api/campaigns/:id - NGO edits own campaign
-router.put('/:id', auth('ngo'), upload.single('image'), async (req, res, next) => {
-  try {
-    const { error, value } = campaignSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
-
-    const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    if (!ngo.rows[0]) return res.status(403).json({ error: 'NGO profile not found' });
-
-    const image_url = req.file? req.file.path : req.body.image_url;
-    const { title, description, category, target_amount, location, end_date } = value;
-
-    const result = await db.query(
-      `UPDATE campaigns SET title=$1, description=$2, category=$3, target_amount=$4, image_url=$5, location=$6, end_date=$7
-       WHERE id=$8 AND ngo_id=$9 RETURNING *`,
-      [title, description, category, target_amount, image_url, location, end_date, req.params.id, ngo.rows[0].id]
-    );
-
-    if (!result.rows[0]) return res.status(403).json({ error: 'Campaign not found or not yours' });
-    res.json({ data: result.rows[0] });
-  } catch (e) { next(e); }
-});
-
-// PATCH /api/campaigns/:id/status - NGO ends/pauses campaign
-router.patch('/:id/status', auth('ngo'), async (req, res, next) => {
-  try {
-    const { status } = req.body;
-    if (!['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-
-    const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
-    const result = await db.query(
-      `UPDATE campaigns SET status=$1 WHERE id=$2 AND ngo_id=$3 RETURNING *`,
-      [status, req.params.id, ngo.rows[0].id]
-    );
-
-    if (!result.rows[0]) return res.status(403).json({ error: 'Campaign not found or not yours' });
-    res.json({ data: result.rows[0] });
-  } catch (e) { next(e); }
-});
-
 
 // GET /api/campaigns/map - For map view
 router.get('/map', async (req, res, next) => {
@@ -187,54 +111,129 @@ router.get('/map', async (req, res, next) => {
              n.org_name
       FROM campaigns c
       JOIN ngo_profiles n ON c.ngo_id = n.id
-      WHERE c.status = 'ACTIVE' 
-        AND c.latitude IS NOT NULL 
+      WHERE c.status = 'ACTIVE'
+        AND c.latitude IS NOT NULL
         AND c.longitude IS NOT NULL
       ORDER BY c.created_at DESC
     `);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
-
 
 // GET /api/campaigns/nearby?lat=31.5204&lng=74.3587&radius=10
 router.get('/nearby', async (req, res, next) => {
   try {
-    const { lat, lng, radius = 10 } = req.query; // radius in km
-    
-    if (!lat || !lng) {
-      return res.status(400).json({ error: 'lat and lng required' });
+    const { lat, lng, radius = 10 } = req.query;
+
+    if (!lat ||!lng) {
+      return res.fail('lat and lng required', 400);
     }
 
-    // Haversine formula to calculate distance in km
     const result = await db.query(`
       SELECT c.id, c.title, c.raised_amount, c.target_amount, c.category,
              c.latitude, c.longitude, c.address, c.image_url,
              n.org_name,
              (
                6371 * acos(
-                 cos(radians($1)) * cos(radians(c.latitude)) * 
-                 cos(radians(c.longitude) - radians($2)) + 
+                 cos(radians($1)) * cos(radians(c.latitude)) *
+                 cos(radians(c.longitude) - radians($2)) +
                  sin(radians($1)) * sin(radians(c.latitude))
                )
              ) AS distance_km
       FROM campaigns c
       JOIN ngo_profiles n ON c.ngo_id = n.id
-      WHERE c.status = 'ACTIVE' 
-        AND c.latitude IS NOT NULL 
+      WHERE c.status = 'ACTIVE'
+        AND c.latitude IS NOT NULL
         AND c.longitude IS NOT NULL
         AND (
           6371 * acos(
-            cos(radians($1)) * cos(radians(c.latitude)) * 
-            cos(radians(c.longitude) - radians($2)) + 
+            cos(radians($1)) * cos(radians(c.latitude)) *
+            cos(radians(c.longitude) - radians($2)) +
             sin(radians($1)) * sin(radians(c.latitude))
           )
         ) <= $3
       ORDER BY distance_km ASC
       LIMIT 50
     `, [lat, lng, radius]);
-    
-    res.json({ data: result.rows });
+
+    res.success(result.rows);
+  } catch (e) { next(e); }
+});
+
+// GET /api/campaigns/:id - Must be after /map and /nearby
+router.get('/:id', async (req, res, next) => {
+  try {
+    const result = await db.query(`
+      SELECT
+        c.id, c.ngo_id, c.title, c.description, c.category,
+        c.target_amount, c.raised_amount, c.image_url, c.location,
+        c.latitude, c.longitude, c.address, c.status, c.created_at, c.end_date,
+        n.org_name, n.contact_person, n.address as ngo_address, n.mission,
+        u.email as ngo_email, u.phone as ngo_phone, u.name as ngo_contact_name,
+        COUNT(d.id) as donor_count
+      FROM campaigns c
+      JOIN ngo_profiles n ON c.ngo_id = n.id
+      JOIN users u ON n.user_id = u.id
+      LEFT JOIN donations d ON d.campaign_id = c.id AND d.status = 'completed'
+      WHERE c.id = $1
+      GROUP BY c.id, n.id, u.id
+    `, [req.params.id]);
+
+    if (!result.rows[0]) return res.fail('Campaign not found', 404);
+    res.success(result.rows[0]);
+  } catch (e) { next(e); }
+});
+
+// PUT /api/campaigns/:id - NGO edits own campaign
+router.put('/:id', auth('ngo'), upload.single('image'), async (req, res, next) => {
+  try {
+    const { error, value } = campaignSchema.validate(req.body);
+    if (error) return res.fail(error.details[0].message, 400);
+
+    const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
+    if (!ngo.rows[0]) return res.fail('NGO profile not found', 403);
+
+    let image_url = req.body.image_url;
+    if (req.file) {
+      try {
+        const uploadResult = await cloudinary.uploader.upload(req.file.path, { folder: 'campaigns' });
+        image_url = uploadResult.secure_url;
+      } finally {
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      }
+    }
+
+    const { title, description, category, target_amount, location, end_date, latitude, longitude, address } = value;
+
+    const result = await db.query(
+      `UPDATE campaigns SET title=$1, description=$2, category=$3, target_amount=$4, image_url=$5, location=$6, end_date=$7, latitude=$8, longitude=$9, address=$10
+       WHERE id=$11 AND ngo_id=$12 RETURNING *`,
+      [title, description, category, target_amount, image_url, location, end_date, latitude, longitude, address, req.params.id, ngo.rows[0].id]
+    );
+
+    if (!result.rows[0]) return res.fail('Campaign not found or not yours', 403);
+    res.success(result.rows[0]);
+  } catch (e) { next(e); }
+});
+
+// PATCH /api/campaigns/:id/status - NGO ends/pauses campaign
+router.patch('/:id/status', auth('ngo'), async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    if (!['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'].includes(status)) {
+      return res.fail('Invalid status', 400);
+    }
+
+    const ngo = await db.query('SELECT id FROM ngo_profiles WHERE user_id = $1', [req.user.id]);
+    if (!ngo.rows[0]) return res.fail('NGO profile not found', 403);
+
+    const result = await db.query(
+      `UPDATE campaigns SET status=$1 WHERE id=$2 AND ngo_id=$3 RETURNING *`,
+      [status, req.params.id, ngo.rows[0].id]
+    );
+
+    if (!result.rows[0]) return res.fail('Campaign not found or not yours', 403);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 

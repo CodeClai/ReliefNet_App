@@ -12,7 +12,7 @@ router.get('/', auth(), async (req, res, next) => {
        LIMIT 50`,
       [req.user.id]
     );
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -24,7 +24,7 @@ router.patch('/:id/read', auth(), async (req, res, next) => {
        WHERE id = $1 AND user_id = $2`,
       [req.params.id, req.user.id]
     );
-    res.json({ success: true });
+    res.success({ message: 'Notification marked as read' });
   } catch (e) { next(e); }
 });
 
@@ -36,7 +36,7 @@ router.patch('/read-all', auth(), async (req, res, next) => {
        WHERE user_id = $1 AND is_read = false`,
       [req.user.id]
     );
-    res.json({ success: true });
+    res.success({ message: 'All notifications marked as read' });
   } catch (e) { next(e); }
 });
 

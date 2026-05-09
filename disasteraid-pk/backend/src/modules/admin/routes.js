@@ -2,13 +2,9 @@ const express = require('express');
 const router = express.Router();
 const db = require('../../config/db');
 const auth = require('../../middleware/auth');
-
-const { logAction } = require('../../utils/audit'); // ADD THIS
+const { logAction } = require('../../utils/audit');
 const upload = require('../../utils/upload');
 
-
-
-// GET /api/admin/stats - Dashboard stats
 // GET /api/admin/stats - Dashboard stats
 router.get('/stats', auth('admin'), async (req, res, next) => {
   try {
@@ -46,42 +42,40 @@ router.get('/stats', auth('admin'), async (req, res, next) => {
       `)
     ]);
 
-    res.json({
-      data: {
-        users: users.rows[0],
-        ngos: ngos.rows[0],
-        campaigns: campaigns.rows[0],
-        donations: donations.rows[0]
-      }
+    res.success({
+      users: users.rows[0],
+      ngos: ngos.rows[0],
+      campaigns: campaigns.rows[0],
+      donations: donations.rows[0]
     });
   } catch (e) { next(e); }
 });
 
-// PATCH /api/admin/ngos/:id/approve - Partial update to status
+// PATCH /api/admin/ngos/:id/approve
 router.patch('/ngos/:id/approve', auth('admin'), async (req, res, next) => {
   try {
     const result = await db.query(
       `UPDATE ngo_profiles SET status='APPROVED', approved_by=$1, approved_at=NOW() WHERE id=$2 AND status='PENDING' RETURNING *`,
       [req.user.id, req.params.id]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'NGO not found or not pending' });
-    res.json({ success: true, data: result.rows[0] });
+    if (!result.rows[0]) return res.error('NGO not found or not pending', 404);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 
-// PATCH /api/admin/ngos/:id/reject - Partial update to status + reason
+// PATCH /api/admin/ngos/:id/reject
 router.patch('/ngos/:id/reject', auth('admin'), async (req, res, next) => {
   try {
     const { reason } = req.body;
     if (!reason || reason.trim() === '') {
-      return res.status(400).json({ error: 'Rejection reason required' });
+      return res.error('Rejection reason required', 400);
     }
     const result = await db.query(
       `UPDATE ngo_profiles SET status='REJECTED', rejection_reason=$1 WHERE id=$2 AND status='PENDING' RETURNING *`,
       [reason.trim(), req.params.id]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'NGO not found or not pending' });
-    res.json({ success: true, data: result.rows[0] });
+    if (!result.rows[0]) return res.error('NGO not found or not pending', 404);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 
@@ -90,10 +84,10 @@ router.get('/ngos', auth('admin'), async (req, res, next) => {
   try {
     const { status } = req.query;
     let query = `
-      SELECT 
-        n.*, 
-        u.email, 
-        u.phone, 
+      SELECT
+        n.*,
+        u.email,
+        u.phone,
         u.name,
         w.balance,
         w.total_received,
@@ -104,19 +98,18 @@ router.get('/ngos', auth('admin'), async (req, res, next) => {
       WHERE 1=1
     `;
     const params = [];
-    
+
     if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status.toUpperCase())) {
       params.push(status.toUpperCase());
       query += ` AND n.status = $${params.length}`;
     }
-    
+
     query += ` ORDER BY n.created_at DESC`;
-    
+
     const result = await db.query(query, params);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
-
 
 // GET /api/admin/ngos/pending
 router.get('/ngos/pending', auth('admin'), async (req, res, next) => {
@@ -128,7 +121,7 @@ router.get('/ngos/pending', auth('admin'), async (req, res, next) => {
       WHERE n.status = 'PENDING'
       ORDER BY n.created_at DESC
     `);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -141,12 +134,11 @@ router.get('/ngos/all', auth('admin'), async (req, res, next) => {
       JOIN users u ON n.user_id = u.id
       ORDER BY n.created_at DESC
     `);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-
-// GET /api/admin/campaigns - All campaigns with filters
+// GET /api/admin/campaigns
 router.get('/campaigns', auth('admin'), async (req, res, next) => {
   try {
     const { status, ngo_id } = req.query;
@@ -163,27 +155,27 @@ router.get('/campaigns', auth('admin'), async (req, res, next) => {
     query += ' ORDER BY c.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-// PATCH /api/admin/campaigns/:id/status - Pause/Resume/Complete
+// PATCH /api/admin/campaigns/:id/status
 router.patch('/campaigns/:id/status', auth('admin'), async (req, res, next) => {
   try {
     const { status } = req.body;
     if (!['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
+      return res.error('Invalid status', 400);
     }
     const result = await db.query(
       `UPDATE campaigns SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *`,
       [status, req.params.id]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'Campaign not found' });
-    res.json({ success: true, data: result.rows[0] });
+    if (!result.rows[0]) return res.error('Campaign not found', 404);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 
-// GET /api/admin/analytics - Advanced stats
+// GET /api/admin/analytics
 router.get('/analytics', auth('admin'), async (req, res, next) => {
   try {
     const { start_date, end_date } = req.query;
@@ -227,20 +219,16 @@ router.get('/analytics', auth('admin'), async (req, res, next) => {
       `)
     ]);
 
-    res.json({
-      data: {
-        dailyDonations: dailyDonations.rows,
-        topCampaigns: topCampaigns.rows,
-        topNgos: topNgos.rows,
-        categoryStats: categoryStats.rows
-      }
+    res.success({
+      dailyDonations: dailyDonations.rows,
+      topCampaigns: topCampaigns.rows,
+      topNgos: topNgos.rows,
+      categoryStats: categoryStats.rows
     });
   } catch (e) { next(e); }
 });
 
-
-
-// GET /api/admin/aid-requests - All requests across system
+// GET /api/admin/aid-requests
 router.get('/aid-requests', auth('admin'), async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -262,11 +250,11 @@ router.get('/aid-requests', auth('admin'), async (req, res, next) => {
     query += ' ORDER BY CASE a.urgency WHEN \'CRITICAL\' THEN 1 WHEN \'HIGH\' THEN 2 WHEN \'MEDIUM\' THEN 3 ELSE 4 END, a.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-// PATCH /api/admin/aid-requests/:id/assign - Admin assigns to NGO or rejects
+// PATCH /api/admin/aid-requests/:id/assign
 router.patch('/aid-requests/:id/assign', auth('admin'), async (req, res, next) => {
   const { ngo_id, status, rejection_reason } = req.body;
   const client = await db.connect();
@@ -282,10 +270,9 @@ router.patch('/aid-requests/:id/assign', auth('admin'), async (req, res, next) =
       );
       if (!result.rows[0]) throw new Error('Request not found or already processed');
       await client.query('COMMIT');
-      return res.json({ data: result.rows[0] });
+      return res.success(result.rows[0]);
     }
 
-    // Assign to NGO
     if (!ngo_id) throw new Error('ngo_id required for approval');
 
     const ngo = await client.query('SELECT status FROM ngo_profiles WHERE id=$1', [ngo_id]);
@@ -300,16 +287,16 @@ router.patch('/aid-requests/:id/assign', auth('admin'), async (req, res, next) =
     if (!result.rows[0]) throw new Error('Request not found or already processed');
 
     await client.query('COMMIT');
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0]);
   } catch (e) {
     await client.query('ROLLBACK');
-    res.status(400).json({ error: e.message });
+    next(e);
   } finally {
     client.release();
   }
 });
 
-// GET /api/admin/withdrawals - All withdrawal requests
+// GET /api/admin/withdrawals
 router.get('/withdrawals', auth('admin'), async (req, res, next) => {
   try {
     const { status } = req.query;
@@ -325,72 +312,11 @@ router.get('/withdrawals', auth('admin'), async (req, res, next) => {
     query += ' ORDER BY w.created_at DESC';
 
     const result = await db.query(query, params);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-// PATCH /api/admin/withdrawals/:id - Approve/Reject/Complete
-// router.patch('/withdrawals/:id', auth('admin'), upload.single('proof'), async (req, res, next) => {
-//   const { status, admin_notes, rejection_reason, transaction_ref } = req.body;
-//   const client = await db.connect();
-
-//   try {
-//     if (!['APPROVED', 'COMPLETED', 'REJECTED'].includes(status)) throw new Error('Invalid status');
-//     await client.query('BEGIN');
-
-//     const w = await client.query(`SELECT * FROM withdrawal_requests WHERE id = $1 FOR UPDATE`, [req.params.id]);
-//     if (!w.rows[0]) throw new Error('Withdrawal not found');
-//     const withdrawal = w.rows[0];
-
-//     if (status === 'APPROVED' && withdrawal.status!== 'PENDING') throw new Error('Can only approve PENDING');
-//     if (status === 'COMPLETED' && withdrawal.status!== 'APPROVED') throw new Error('Must approve before completing');
-//     if (status === 'COMPLETED' &&!req.file) throw new Error('Upload transfer proof to complete');
-//     if (status === 'REJECTED' && withdrawal.status!== 'PENDING') throw new Error('Can only reject PENDING');
-
-//     // Debit wallet ONLY on COMPLETED
-//     if (status === 'COMPLETED') {
-//       const wallet = await client.query(`SELECT balance FROM ngo_wallets WHERE ngo_id = $1 FOR UPDATE`, [withdrawal.ngo_id]);
-//       if (!wallet.rows[0]) throw new Error('Wallet not found');
-//       if (parseFloat(wallet.rows[0].balance) < parseFloat(withdrawal.amount)) {
-//         throw new Error('Insufficient wallet balance');
-//       }
-
-//       await client.query(
-//         `UPDATE ngo_wallets SET balance = balance - $1, total_withdrawn = total_withdrawn + $1 WHERE ngo_id = $2`,
-//         [withdrawal.amount, withdrawal.ngo_id]
-//       );
-//     }
-
-//     const result = await client.query(`
-//       UPDATE withdrawal_requests SET
-//         status = $1, admin_notes = $2, rejection_reason = $3,
-//         transfer_proof_url = $4, approved_by = $5, processed_at = NOW(),
-//         transaction_ref = $6
-//       WHERE id = $7 RETURNING *
-//     `, [status, admin_notes, rejection_reason, req.file?.path || null, req.user.id, transaction_ref || null, req.params.id]);
-
-//     await logAction({
-//       adminId: req.user.id,
-//       action: `WITHDRAWAL_${status}`,
-//       targetType: 'withdrawal',
-//       targetId: withdrawal.id,
-//       oldValue: { status: withdrawal.status },
-//       newValue: { status: status },
-//       reason: admin_notes || rejection_reason,
-//       req: req,
-//     });
-
-//     await client.query('COMMIT');
-//     res.json({ data: result.rows[0] });
-//   } catch (e) {
-//     await client.query('ROLLBACK');
-//     res.status(400).json({ error: e.message });
-//   } finally {
-//     client.release();
-//   }
-// });
-
-// PATCH /api/admin/withdrawals/:id - Approve/Reject/Complete
+// PATCH /api/admin/withdrawals/:id
 router.patch('/withdrawals/:id', auth('admin'), upload.single('proof'), async (req, res, next) => {
   const { status, admin_notes, rejection_reason, transaction_ref } = req.body;
   const client = await db.connect();
@@ -408,7 +334,6 @@ router.patch('/withdrawals/:id', auth('admin'), upload.single('proof'), async (r
     if (status === 'COMPLETED' &&!req.file) throw new Error('Upload transfer proof to complete');
     if (status === 'REJECTED' && withdrawal.status!== 'PENDING') throw new Error('Can only reject PENDING');
 
-    // Debit wallet ONLY on COMPLETED
     if (status === 'COMPLETED') {
       const wallet = await client.query(`SELECT balance FROM ngo_wallets WHERE ngo_id = $1 FOR UPDATE`, [withdrawal.ngo_id]);
       if (!wallet.rows[0]) throw new Error('Wallet not found');
@@ -442,17 +367,16 @@ router.patch('/withdrawals/:id', auth('admin'), upload.single('proof'), async (r
     });
 
     await client.query('COMMIT');
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0]);
   } catch (e) {
     await client.query('ROLLBACK');
-    res.status(400).json({ error: e.message });
+    next(e);
   } finally {
     client.release();
   }
 });
 
-
-// POST /api/reports - Any user can report
+// POST /api/reports
 router.post('/reports', auth(), async (req, res, next) => {
   try {
     const schema = Joi.object({
@@ -462,25 +386,24 @@ router.post('/reports', auth(), async (req, res, next) => {
       description: Joi.string().max(500).allow('', null),
     });
     const { error, value } = schema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
-    // Prevent duplicate reports from same user
     const existing = await db.query(
       'SELECT id FROM reports WHERE reporter_id=$1 AND target_type=$2 AND target_id=$3 AND status=\'PENDING\'',
       [req.user.id, value.target_type, value.target_id]
     );
-    if (existing.rows[0]) return res.status(400).json({ error: 'You already reported this' });
+    if (existing.rows[0]) return res.error('You already reported this', 400);
 
     const result = await db.query(
       `INSERT INTO reports (reporter_id, target_type, target_id, reason, description)
        VALUES ($1, $2, $3, $4, $5) RETURNING *`,
       [req.user.id, value.target_type, value.target_id, value.reason, value.description]
     );
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0], 201);
   } catch (e) { next(e); }
 });
 
-// GET /api/admin/reports - Admin views all reports
+// GET /api/admin/reports
 router.get('/reports', auth('admin'), async (req, res, next) => {
   try {
     const { status = 'PENDING' } = req.query;
@@ -498,11 +421,11 @@ router.get('/reports', auth('admin'), async (req, res, next) => {
       ORDER BY r.created_at DESC
       LIMIT 100
     `, [status]);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-// PATCH /api/admin/reports/:id - Admin resolves/dismisses
+// PATCH /api/admin/reports/:id
 router.patch('/reports/:id', auth('admin'), async (req, res, next) => {
   try {
     const schema = Joi.object({
@@ -510,19 +433,19 @@ router.patch('/reports/:id', auth('admin'), async (req, res, next) => {
       admin_notes: Joi.string().max(500).allow('', null),
     });
     const { error, value } = schema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
     const result = await db.query(
       `UPDATE reports SET status=$1, admin_notes=$2, reviewed_at=NOW(), reviewed_by=$3
        WHERE id=$4 RETURNING *`,
       [value.status, value.admin_notes, req.user.id, req.params.id]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'Report not found' });
-    res.json({ data: result.rows[0] });
+    if (!result.rows[0]) return res.error('Report not found', 404);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 
-// GET /api/admin/audit-logs - View all admin actions
+// GET /api/admin/audit-logs
 router.get('/audit-logs', auth('admin'), async (req, res, next) => {
   try {
     const { action, target_type, limit = 100 } = req.query;
@@ -545,10 +468,9 @@ router.get('/audit-logs', auth('admin'), async (req, res, next) => {
     params.push(limit);
 
     const result = await db.query(query, params);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
-
 
 // PATCH /api/admin/ngos/:id/status
 router.patch('/ngos/:id/status', auth('admin'), async (req, res, next) => {
@@ -558,7 +480,6 @@ router.patch('/ngos/:id/status', auth('admin'), async (req, res, next) => {
   try {
     await client.query('BEGIN');
 
-    // Get old state for audit
     const oldNgo = await client.query('SELECT * FROM ngo_profiles WHERE id = $1', [req.params.id]);
     if (!oldNgo.rows[0]) throw new Error('NGO not found');
 
@@ -568,7 +489,6 @@ router.patch('/ngos/:id/status', auth('admin'), async (req, res, next) => {
       [status, rejection_reason, req.params.id]
     );
 
-    // FIXED: Log the action
     await logAction({
       adminId: req.user.id,
       action: status === 'APPROVED'? 'APPROVE_NGO' : 'REJECT_NGO',
@@ -581,7 +501,7 @@ router.patch('/ngos/:id/status', auth('admin'), async (req, res, next) => {
     });
 
     await client.query('COMMIT');
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0]);
   } catch (e) {
     await client.query('ROLLBACK');
     next(e);
@@ -590,11 +510,7 @@ router.patch('/ngos/:id/status', auth('admin'), async (req, res, next) => {
   }
 });
 
-
-
-// /backend/modules/aids/routes.js
-
-// Add this at bottom, after other routes
+// GET /api/aids/delivered
 router.get('/delivered', auth('admin'), async (req, res, next) => {
   try {
     const result = await db.query(`
@@ -606,7 +522,8 @@ router.get('/delivered', auth('admin'), async (req, res, next) => {
       WHERE ar.status = 'DELIVERED'
       ORDER BY ar.delivered_at DESC
     `);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
+
 module.exports = router;

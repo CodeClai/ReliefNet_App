@@ -159,6 +159,9 @@ Feature | Status
 4.2 Campaign Discussion Chat: Donors ↔ NGO | 📋
 4.3 Admin Broadcast Messages | 📋
 4.4 Read Receipts + Offline Queue | 📋
+
+
+// these are TODO  after complete readiness of all the stuff above it keep this in the mind in every way possible. 
 ### *Phase 5: Analytics & Admin Tools*
 Feature | Status
 5.1 Admin Dashboard Charts | 📋 API ready

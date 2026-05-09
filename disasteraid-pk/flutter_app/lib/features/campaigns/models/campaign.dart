@@ -11,6 +11,7 @@ class Campaign {
   final String status;
   final String? orgName;
   final DateTime createdAt;
+  final DateTime? endDate; // ADDED
 
   Campaign({
     required this.id,
@@ -25,6 +26,7 @@ class Campaign {
     required this.status,
     this.orgName,
     required this.createdAt,
+    this.endDate, // ADDED
   });
 
   factory Campaign.fromJson(Map<String, dynamic> json) {
@@ -41,6 +43,7 @@ class Campaign {
       status: json['status']?? 'ACTIVE',
       orgName: json['org_name'],
       createdAt: DateTime.parse(json['created_at']),
+      endDate: json['end_date'] != null? DateTime.parse(json['end_date']) : null, // ADDED
     );
   }
 
@@ -58,9 +61,17 @@ class Campaign {
       'status': status,
       'org_name': orgName,
       'created_at': createdAt.toIso8601String(),
+      'end_date': endDate?.toIso8601String(), // ADDED
     };
   }
 
   double get progress => targetAmount > 0? (raisedAmount / targetAmount).clamp(0.0, 1.0) : 0.0;
   int get percentRaised => (progress * 100).toInt();
+
+  // ADDED: Calculate days left
+  int? get daysLeft {
+    if (endDate == null) return null;
+    final diff = endDate!.difference(DateTime.now()).inDays;
+    return diff < 0 ? 0 : diff;
+  }
 }

@@ -9,16 +9,26 @@ class ChatBadgeProvider extends ChangeNotifier {
   Future<void> refreshUnread() async {
     try {
       final res = await _api.dio.get('/chat');
-      final chats = List<Map<String, dynamic>>.from(res.data['data']);
-      _unreadCount = chats.fold(0, (sum, chat) => sum + (chat['unread_count']?? 0) as int);
+      // Backend now returns {success: true, data: [...]}
+      final chats = List<Map<String, dynamic>>.from(res.data);
+      _unreadCount = chats.fold(0, (sum, chat) => sum + (chat['unread_count'] as int? ?? 0));
       notifyListeners();
     } catch (e) {
-      print('Badge refresh error: $e');
+      debugPrint('Badge refresh error: $e');
+      _unreadCount = 0;
+      notifyListeners();
     }
   }
 
   void clear() {
     _unreadCount = 0;
     notifyListeners();
+  }
+
+  void decrement([int count = 1]) {
+    if (_unreadCount > 0) {
+      _unreadCount = (_unreadCount - count).clamp(0, _unreadCount);
+      notifyListeners();
+    }
   }
 }

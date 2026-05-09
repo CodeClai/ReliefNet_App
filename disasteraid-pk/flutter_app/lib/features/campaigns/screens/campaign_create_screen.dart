@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:disasteraid_pk/features/campaigns/services/campaign_service.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../core/widgets/location_picker.dart';
+import '../../../core/api/api_client.dart';
 
 class CampaignCreateScreen extends StatefulWidget {
   const CampaignCreateScreen({super.key});
@@ -23,9 +25,17 @@ class _CampaignCreateScreenState extends State<CampaignCreateScreen> {
   bool _loading = false;
   final _picker = ImagePicker();
 
-  // ADDED: Location fields
   LatLng? _campaignLocation;
   String _campaignAddress = '';
+
+  final List<Map<String, dynamic>> _categories = [
+    {'key': 'FOOD', 'label': 'Food', 'icon': Icons.restaurant},
+    {'key': 'MEDICAL', 'label': 'Medical', 'icon': Icons.medical_services},
+    {'key': 'SHELTER', 'label': 'Shelter', 'icon': Icons.home},
+    {'key': 'EDUCATION', 'label': 'Education', 'icon': Icons.school},
+    {'key': 'CLOTHING', 'label': 'Clothing', 'icon': Icons.checkroom},
+    {'key': 'OTHER', 'label': 'Other', 'icon': Icons.category},
+  ];
 
   @override
   void dispose() {
@@ -36,7 +46,11 @@ class _CampaignCreateScreenState extends State<CampaignCreateScreen> {
   }
 
   Future<void> _pickImage() async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+    final picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+      maxWidth: 1920,
+    );
     if (picked!= null) setState(() => _imageFile = File(picked.path));
   }
 
@@ -53,11 +67,11 @@ class _CampaignCreateScreenState extends State<CampaignCreateScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_endDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select campaign end date')));
+      _showError('Please select campaign end date');
       return;
     }
     if (_campaignLocation == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select campaign location')));
+      _showError('Please select campaign location');
       return;
     }
     setState(() => _loading = true);
@@ -68,11 +82,11 @@ class _CampaignCreateScreenState extends State<CampaignCreateScreen> {
         'description': _desc.text.trim(),
         'category': _category,
         'target_amount': _target.text.trim(),
-        'location': _campaignAddress, // Changed: use address from picker
+        'location': _campaignAddress,
         'end_date': _endDate!.toIso8601String(),
-        'latitude': _campaignLocation!.latitude, // ADDED
-        'longitude': _campaignLocation!.longitude, // ADDED
-        'address': _campaignAddress.isEmpty? null : _campaignAddress, // ADDED
+        'latitude': _campaignLocation!.latitude,
+        'longitude': _campaignLocation!.longitude,
+        'address': _campaignAddress.isEmpty? null : _campaignAddress,
         if (_imageFile!= null)
           'image': await MultipartFile.fromFile(
             _imageFile!.path,
@@ -84,104 +98,181 @@ class _CampaignCreateScreenState extends State<CampaignCreateScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Campaign created successfully'), backgroundColor: Colors.green),
+          const SnackBar(
+            content: Text('Campaign created successfully'),
+            backgroundColor: Colors.green,
+          ),
         );
         Navigator.pop(context, true);
       }
     } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Failed to create campaign';
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-      }
+      final apiErr = e.error as ApiException?;
+      final msg = apiErr?.message?? 'Failed to create campaign';
+      _showError(msg);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Campaign')),
+      appBar: AppBar(
+        title: const Text('Create Campaign'),
+        scrolledUnderElevation: 0,
+      ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // Image Picker
             GestureDetector(
               onTap: _pickImage,
               child: Container(
-                height: 180,
+                height: 200,
                 decoration: BoxDecoration(
-                  color: Colors.grey[200],
+                  color: cs.surfaceVariant,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[400]!),
+                  border: Border.all(color: cs.outlineVariant),
                 ),
                 child: _imageFile == null
-                   ? Column(
+                  ? Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.add_photo_alternate, size: 50, color: Colors.grey[600]),
-                          const SizedBox(height: 8),
-                          Text('Tap to add campaign image', style: TextStyle(color: Colors.grey[600])),
+                          Icon(Icons.add_photo_alternate_outlined, size: 48, color: cs.onSurfaceVariant),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Add Campaign Image',
+                            style: tt.titleMedium?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Tap to upload',
+                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                          ),
                         ],
                       )
-                    : ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.file(_imageFile!, fit: BoxFit.cover, width: double.infinity),
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(_imageFile!, fit: BoxFit.cover),
+                          ),
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: Material(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () => setState(() => _imageFile = null),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(6),
+                                  child: Icon(Icons.close, color: Colors.white, size: 20),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
+
+            // Title
             TextFormField(
               controller: _title,
-              decoration: InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Campaign Title *',
+                hintText: 'e.g. Flood Relief for Sindh',
+                border: OutlineInputBorder(),
               ),
-              validator: (v) => v!.trim().length < 5? 'Min 5 characters' : null,
+              validator: (v) => v!.trim().length < 5? 'Minimum 5 characters' : null,
             ),
             const SizedBox(height: 16),
+
+            // Description
             TextFormField(
               controller: _desc,
-              decoration: InputDecoration(
-                labelText: 'Description',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Description *',
+                hintText: 'Describe the cause and how funds will be used',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
               ),
-              maxLines: 3,
-              validator: (v) => v!.trim().length < 20? 'Min 20 chars' : null,
+              maxLines: 4,
+              maxLength: 500,
+              validator: (v) => v!.trim().length < 20? 'Minimum 20 characters' : null,
             ),
             const SizedBox(height: 16),
+
+            // Category
             DropdownButtonFormField(
               value: _category,
-              items: ['FOOD', 'MEDICAL', 'SHELTER', 'EDUCATION', 'CLOTHING', 'OTHER']
-                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+              items: _categories
+                .map((e) => DropdownMenuItem(
+                        value: e['key'],
+                        child: Row(
+                          children: [
+                            Icon(e['icon'], size: 20),
+                            const SizedBox(width: 12),
+                            Text(e['label']),
+                          ],
+                        ),
+                      ))
                  .toList(),
-              onChanged: (v) => setState(() => _category = v!),
-              decoration: InputDecoration(
-                labelText: 'Category',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              onChanged: (v) => setState(() => _category = v as String ),
+              decoration: const InputDecoration(
+                labelText: 'Category *',
+                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 16),
+
+            // Target Amount
             TextFormField(
               controller: _target,
-              decoration: InputDecoration(
-                labelText: 'Target Amount (PKR)',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              decoration: const InputDecoration(
+                labelText: 'Target Amount *',
+                prefixText: 'PKR ',
+                helperText: 'Minimum PKR 1,000',
+                border: OutlineInputBorder(),
+              ),
               validator: (v) {
                 if (v!.isEmpty) return 'Required';
                 final amount = double.tryParse(v);
-                if (amount == null || amount < 1000) return 'Min PKR 1,000';
+                if (amount == null || amount < 1000) return 'Minimum PKR 1,000';
+                if (amount > 100000000) return 'Maximum PKR 100M';
                 return null;
               },
             ),
-            // REMOVED: Old TextFormField for location
-            // ADDED: LocationPicker widget
-            const SizedBox(height: 16),
-            Text('Campaign Location', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 24),
+
+            // Location Section
+            Text(
+              'Campaign Location *',
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
+            Text(
+              'Select where aid will be distributed',
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
             LocationPicker(
               onLocationPicked: (latLng, address) {
                 setState(() {
@@ -190,24 +281,64 @@ class _CampaignCreateScreenState extends State<CampaignCreateScreen> {
                 });
               },
             ),
-            const SizedBox(height: 16),
-            ListTile(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey[400]!),
+            if (_campaignLocation!= null) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.location_on, size: 20, color: cs.onPrimaryContainer),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _campaignAddress,
+                        style: tt.bodySmall?.copyWith(color: cs.onPrimaryContainer),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              title: Text(_endDate == null? 'Select End Date *' : 'Ends: ${_endDate!.toLocal().toString().split(' ')[0]}'),
-              trailing: const Icon(Icons.calendar_today),
-              onTap: _pickDate,
-            ),
+            ],
             const SizedBox(height: 24),
+
+            // End Date
+            OutlinedButton.icon(
+              onPressed: _pickDate,
+              icon: const Icon(Icons.calendar_today),
+              label: Text(
+                _endDate == null
+                  ? 'Select End Date *'
+                    : 'Ends: ${_endDate!.day}/${_endDate!.month}/${_endDate!.year}',
+              ),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 56),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+              ),
+            ),
+            const SizedBox(height: 32),
+
+            // Submit Button
             FilledButton(
               onPressed: _loading? null : _submit,
-              style: FilledButton.styleFrom(padding: const EdgeInsets.all(16)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
               child: _loading
-                 ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
                   : const Text('Create Campaign', style: TextStyle(fontSize: 16)),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),

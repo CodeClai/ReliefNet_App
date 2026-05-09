@@ -27,11 +27,17 @@ class _DeliverAidScreenState extends State<DeliverAidScreen> {
   final _api = ApiClient();
   final _picker = ImagePicker();
 
+  @override
+  void dispose() {
+    _notesController.dispose();
+    super.dispose();
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     final img = await _picker.pickImage(
       source: source,
       imageQuality: 70,
-      maxWidth: 1200,
+      maxWidth: 1920,
     );
     if (img!= null) setState(() => _proofImage = File(img.path));
   }
@@ -52,7 +58,7 @@ class _DeliverAidScreenState extends State<DeliverAidScreen> {
         'notes': _notesController.text.trim(),
       });
 
-      await _api.dio.patch('/api/aids/${widget.aidId}/deliver', data: formData);
+      await _api.dio.patch('/volunteers/tasks/${widget.aidId}/deliver', data: formData);
 
       if (mounted) {
         Navigator.pop(context, true);
@@ -64,7 +70,8 @@ class _DeliverAidScreenState extends State<DeliverAidScreen> {
         );
       }
     } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Failed to submit delivery';
+      final apiErr = e.error as ApiException?;
+      final msg = apiErr?.message?? 'Failed to submit delivery';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
@@ -73,74 +80,171 @@ class _DeliverAidScreenState extends State<DeliverAidScreen> {
     }
   }
 
+  void _showImageSourceDialog() {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(Icons.camera_alt, color: Theme.of(context).colorScheme.primary),
+              title: const Text('Take Photo'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.photo_library, color: Theme.of(context).colorScheme.primary),
+              title: const Text('Choose from Gallery'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Confirm Delivery')),
+      appBar: AppBar(
+        title: const Text('Confirm Delivery'),
+        scrolledUnderElevation: 0,
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Task Info Card
             Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: cs.outlineVariant),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Aid Request #${widget.aidId}',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: cs.tertiaryContainer,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(Icons.assignment, color: cs.onTertiaryContainer, size: 20),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Aid Request #${widget.aidId}',
+                          style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 16),
+                    _buildInfoRow(context, Icons.person_outline, 'Recipient', widget.victimName),
                     const SizedBox(height: 12),
-                    _buildInfoRow(Icons.person, 'Recipient', widget.victimName),
-                    const SizedBox(height: 8),
-                    _buildInfoRow(Icons.location_on, 'Location', widget.location),
+                    _buildInfoRow(context, Icons.location_on_outlined, 'Location', widget.location),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 24),
-            Text('Delivery Proof Photo', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+
+            // Photo Section
+            Text(
+              'Delivery Proof Photo',
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            Text('Take a clear photo showing the aid delivered to the recipient',
-              style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+            Text(
+              'Take a clear photo showing the aid delivered to the recipient',
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
             const SizedBox(height: 12),
             GestureDetector(
-              onTap: () => _showImageSourceDialog(),
+              onTap: _showImageSourceDialog,
               child: Container(
-                height: 250,
+                height: 280,
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: cs.surfaceVariant,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[300]!),
+                  border: Border.all(color: cs.outlineVariant),
                 ),
                 child: _proofImage == null
-                 ? Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.camera_alt, size: 50, color: Colors.grey[400]),
-                        const SizedBox(height: 12),
-                        Text('Tap to add photo', style: TextStyle(color: Colors.grey[600])),
-                      ],
-                    )
-                  : ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.file(_proofImage!, fit: BoxFit.cover),
-                    ),
+                  ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.camera_alt_outlined, size: 56, color: cs.onSurfaceVariant),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Tap to add photo',
+                            style: tt.titleMedium?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Camera or Gallery',
+                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                        ],
+                      )
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(_proofImage!, fit: BoxFit.cover),
+                          ),
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: Material(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () => setState(() => _proofImage = null),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: Icon(Icons.close, color: Colors.white, size: 20),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
               ),
             ),
-            if (_proofImage!= null)...[
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: () => setState(() => _proofImage = null),
-                icon: const Icon(Icons.delete, size: 18),
-                label: const Text('Remove Photo'),
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
-              ),
-            ],
             const SizedBox(height: 24),
-            Text('Delivery Notes (Optional)', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
+
+            // Notes Section
+            Text(
+              'Delivery Notes',
+              style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Optional',
+              style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _notesController,
               decoration: const InputDecoration(
@@ -149,62 +253,62 @@ class _DeliverAidScreenState extends State<DeliverAidScreen> {
               ),
               maxLines: 3,
               maxLength: 500,
+              textCapitalization: TextCapitalization.sentences,
             ),
             const SizedBox(height: 32),
+
+            // Submit Button
             SizedBox(
               width: double.infinity,
-              height: 50,
+              height: 56,
               child: FilledButton.icon(
                 onPressed: _submitting? null : _submitDelivery,
                 icon: _submitting
-                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Icon(Icons.check_circle),
+                  ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.check_circle_outline),
                 label: Text(_submitting? 'Submitting...' : 'Confirm Delivery'),
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
               ),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
+  Widget _buildInfoRow(BuildContext context, IconData icon, String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: Colors.grey[600]),
-        const SizedBox(width: 8),
-        Text('$label: ', style: TextStyle(color: Colors.grey[700])),
-        Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w600))),
-      ],
-    );
-  }
-
-  void _showImageSourceDialog() {
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Take Photo'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImage(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Choose from Gallery'),
-              onTap: () {
-                Navigator.pop(ctx);
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-          ],
+        Icon(icon, size: 20, color: cs.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: tt.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }

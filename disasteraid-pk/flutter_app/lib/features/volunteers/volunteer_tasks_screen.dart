@@ -7,6 +7,9 @@ import 'package:disasteraid_pk/features/volunteers/complete_profile_screen.dart'
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:shimmer/shimmer.dart';
+import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/error_state.dart';
 
 class VolunteerTasksScreen extends StatefulWidget {
   const VolunteerTasksScreen({super.key});
@@ -37,7 +40,10 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
   }
 
   Future<void> _loadTasks() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final results = await Future.wait([
         _api.dio.get('/volunteers/tasks/available'),
@@ -45,14 +51,15 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
       ]);
       if (mounted) {
         setState(() {
-          _available = results[0].data['data'];
-          _myTasks = results[1].data['data'];
+          // ApiClient already unwraps {success, data} -> returns array
+          _available = List<Map<String, dynamic>>.from(results[0].data);
+          _myTasks = List<Map<String, dynamic>>.from(results[1].data);
           _loading = false;
         });
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 400 &&
-          e.response?.data['error'] == 'Complete volunteer profile first') {
+      final apiErr = e.error as ApiException?;
+      if (apiErr?.statusCode == 400 && apiErr?.message == 'Complete volunteer profile first') {
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -63,7 +70,7 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
       }
       if (mounted) {
         setState(() {
-          _error = e.response?.data['error']?? 'Failed to load tasks';
+          _error = apiErr?.message?? 'Failed to load tasks';
           _loading = false;
         });
       }
@@ -80,7 +87,7 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
         _loadTasks();
       }
     } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Failed to accept task';
+      final msg = (e.error as ApiException?)?.message?? 'Failed to accept task';
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
@@ -106,16 +113,15 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
         _loadTasks();
       }
     } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Failed to update status';
+      final msg = (e.error as ApiException?)?.message?? 'Failed to update status';
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
   Future<void> _showDeliveryDialog(int id) async {
-    File? proofImage;
     final picked = await _picker.pickImage(source: ImageSource.camera, imageQuality: 70);
     if (picked == null) return;
-    proofImage = File(picked.path);
+    final proofImage = File(picked.path);
 
     if (mounted) {
       showDialog(
@@ -125,7 +131,10 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.file(proofImage!, height: 200, fit: BoxFit.cover),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.file(proofImage, height: 200, fit: BoxFit.cover),
+              ),
               const SizedBox(height: 16),
               const Text('Upload this photo as delivery proof?'),
             ],
@@ -147,21 +156,44 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
 
   Color _urgencyColor(String urgency) {
     switch (urgency) {
-      case 'CRITICAL': return Colors.red;
-      case 'HIGH': return Colors.orange;
-      case 'MEDIUM': return Colors.amber;
-      default: return Colors.green;
+      case 'CRITICAL':
+        return Colors.red;
+      case 'HIGH':
+        return Colors.orange;
+      case 'MEDIUM':
+        return Colors.amber[700]!;
+      default:
+        return Colors.green;
+    }
+  }
+
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'ASSIGNED':
+        return Colors.blue;
+      case 'PICKED_UP':
+        return Colors.orange;
+      case 'IN_TRANSIT':
+        return Colors.purple;
+      case 'DELIVERED':
+        return Colors.green;
+      default:
+        return Colors.grey;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Volunteer Tasks'),
+        scrolledUnderElevation: 0,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.logout_outlined),
+            tooltip: 'Logout',
             onPressed: () => context.read<AuthProvider>().logout(),
           ),
         ],
@@ -173,231 +205,365 @@ class _VolunteerTasksScreenState extends State<VolunteerTasksScreen> with Single
           ],
         ),
       ),
-      body: _loading
-     ? const Center(child: CircularProgressIndicator())
-        : _error!= null
-     ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error: $_error'),
-                  const SizedBox(height: 16),
-                  FilledButton(onPressed: _loadTasks, child: const Text('Retry')),
-                ],
-              ),
-            )
-            : TabBarView(
-                controller: _tabController,
-                children: [_buildAvailableTab(), _buildMyTasksTab()],
-              ),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        child: _buildBody(),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    if (_loading) return _buildShimmer();
+    if (_error!= null) return ErrorState(message: _error!, onRetry: _loadTasks);
+    return TabBarView(
+      controller: _tabController,
+      children: [_buildAvailableTab(), _buildMyTasksTab()],
+    );
+  }
+
+  Widget _buildShimmer() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 3,
+      itemBuilder: (_, __) => Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Container(height: 180),
+        ),
+      ),
     );
   }
 
   Widget _buildAvailableTab() {
     if (_available.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.check_circle_outline, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            const Text('No available tasks', style: TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text('Check back later', style: TextStyle(color: Colors.grey[600])),
-          ],
-        ),
+      return EmptyState(
+        icon: Icons.check_circle_outline,
+        title: 'No available tasks',
+        subtitle: 'Check back later for new assignments',
+        onAction: _loadTasks,
+        actionLabel: 'Refresh',
       );
     }
 
     return RefreshIndicator(
       onRefresh: _loadTasks,
       child: ListView.builder(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         itemCount: _available.length,
-        itemBuilder: (context, i) {
-          final t = _available[i];
-          final items = (t['items_needed'] as List?)?.join(', ')?? 'Aid';
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: _urgencyColor(t['urgency']),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          t['urgency'],
-                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Chip(label: Text(t['category']), visualDensity: VisualDensity.compact),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    '${t['beneficiary_name']} - Family of ${t['family_size']}',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
-                  const SizedBox(height: 4),
-                  Text('Campaign: ${t['campaign_title']}', style: TextStyle(color: Colors.grey[700])),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    Icon(Icons.location_on, size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 4),
-                    Expanded(child: Text(t['location']?? 'Unknown', style: TextStyle(color: Colors.grey[600]))),
-                  ]),
-                  const SizedBox(height: 8),
-                  Text('Needs: $items', style: const TextStyle(fontSize: 13)),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed: () => _acceptTask(t['id']),
-                      icon: const Icon(Icons.add_task),
-                      label: const Text('Accept Task'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+        itemBuilder: (context, i) => _AvailableTaskCard(
+          task: _available[i],
+          urgencyColor: _urgencyColor(_available[i]['urgency']),
+          onAccept: () => _acceptTask(_available[i]['id']),
+        ),
       ),
     );
   }
 
   Widget _buildMyTasksTab() {
     if (_myTasks.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.assignment_outlined, size: 80, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            const Text('No assigned tasks', style: TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text('Accept tasks from Available tab', style: TextStyle(color: Colors.grey[600])),
-          ],
-        ),
+      return EmptyState(
+        icon: Icons.assignment_outlined,
+        title: 'No assigned tasks',
+        subtitle: 'Accept tasks from Available tab',
+        onAction: () => _tabController.animateTo(0),
+        actionLabel: 'View Available',
       );
     }
 
     return RefreshIndicator(
       onRefresh: _loadTasks,
       child: ListView.builder(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         itemCount: _myTasks.length,
-        itemBuilder: (context, i) {
-          final t = _myTasks[i];
-          final items = (t['items_needed'] as List?)?.join(', ')?? 'Aid';
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: ExpansionTile(
-              leading: CircleAvatar(
-                backgroundColor: _urgencyColor(t['urgency']),
-                child: Text(t['urgency'][0], style: const TextStyle(color: Colors.white)),
-              ),
-              title: Text('${t['category']} - ${t['beneficiary_name']}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('Status: ${t['status']}'),
+        itemBuilder: (context, i) => _MyTaskCard(
+          task: _myTasks[i],
+          urgencyColor: _urgencyColor(_myTasks[i]['urgency']),
+          statusColor: _statusColor(_myTasks[i]['status']),
+          onUpdateStatus: _updateStatus,
+          onShowDelivery: _showDeliveryDialog,
+        ),
+      ),
+    );
+  }
+}
+
+class _AvailableTaskCard extends StatelessWidget {
+  final Map task;
+  final Color urgencyColor;
+  final VoidCallback onAccept;
+
+  const _AvailableTaskCard({
+    required this.task,
+    required this.urgencyColor,
+    required this.onAccept,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final items = (task['items_needed'] as List?)?.join(', ')?? 'Aid';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: cs.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          // Urgency Bar
+          Container(
+            height: 4,
+            color: urgencyColor,
+          ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _infoRow(Icons.campaign, 'Campaign', t['campaign_title']),
-                      _infoRow(Icons.phone, 'Phone', t['phone']?? 'N/A'),
-                      _infoRow(Icons.location_on, 'Address', t['location']),
-                      _infoRow(Icons.people, 'Family Size', '${t['family_size']}'),
-                      _infoRow(Icons.inventory, 'Items', items),
-                      if (t['assigned_at']!= null)
-                        _infoRow(Icons.schedule, 'Assigned', DateTime.parse(t['assigned_at']).toLocal().toString().substring(0, 16)),
-                      const SizedBox(height: 16),
-                      _buildActionButton(t),
-                    ],
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: urgencyColor,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        task['urgency'],
+                        style: tt.labelSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Chip(
+                      label: Text(task['category']),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '${task['beneficiary_name']} - Family of ${task['family_size']}',
+                  style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Campaign: ${task['campaign_title']}',
+                  style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(Icons.location_on, size: 16, color: cs.onSurfaceVariant),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        task['location']?? 'Unknown',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text('Needs: $items', style: tt.bodySmall),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: onAccept,
+                    icon: const Icon(Icons.add_task),
+                    label: const Text('Accept Task'),
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
                 ),
               ],
             ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _infoRow(IconData icon, String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 18, color: Colors.grey[600]),
-          const SizedBox(width: 8),
-          Text('$label: ', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w500)),
-          Expanded(child: Text(value)),
+          ),
         ],
       ),
     );
   }
-Widget _buildActionButton(Map t) {
-  final status = t['status'];
-  final canChat = ['ASSIGNED', 'PICKED_UP', 'IN_TRANSIT'].contains(status);
-
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      // Existing status buttons
-      if (status == 'ASSIGNED')
-        FilledButton.icon(
-          onPressed: () => _updateStatus(t['id'], 'PICKED_UP'),
-          icon: const Icon(Icons.shopping_bag),
-          label: const Text('Mark Picked Up'),
-        )
-      else if (status == 'PICKED_UP')
-        FilledButton.icon(
-          onPressed: () => _updateStatus(t['id'], 'IN_TRANSIT'),
-          icon: const Icon(Icons.local_shipping),
-          label: const Text('Mark In Transit'),
-        )
-      else if (status == 'IN_TRANSIT')
-        FilledButton.icon(
-          onPressed: () => _showDeliveryDialog(t['id']),
-          icon: const Icon(Icons.camera_alt),
-          label: const Text('Mark Delivered + Photo'),
-        )
-      else if (status == 'DELIVERED')
-        Chip(
-          avatar: const Icon(Icons.check, color: Colors.green),
-          label: const Text('Completed'),
-          backgroundColor: Colors.green[50],
-        ),
-
-      // ADD CHAT BUTTON
-      if (canChat)...[
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: () {
-            Navigator.push(context, MaterialPageRoute(
-              builder: (_) => ChatScreen(
-                requestId: t['id'],
-                otherUserName: t['beneficiary_name']?? 'Beneficiary',
-              ),
-            ));
-          },
-          icon: const Icon(Icons.chat),
-          label: const Text('Chat with Beneficiary'),
-        ),
-      ],
-    ],
-  );
 }
 
+class _MyTaskCard extends StatelessWidget {
+  final Map task;
+  final Color urgencyColor;
+  final Color statusColor;
+  final Function(int, String, {File? proofImage}) onUpdateStatus;
+  final Function(int) onShowDelivery;
+
+  const _MyTaskCard({
+    required this.task,
+    required this.urgencyColor,
+    required this.statusColor,
+    required this.onUpdateStatus,
+    required this.onShowDelivery,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final items = (task['items_needed'] as List?)?.join(', ')?? 'Aid';
+    final status = task['status'];
+    final canChat = ['ASSIGNED', 'PICKED_UP', 'IN_TRANSIT'].contains(status);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: cs.outlineVariant),
+      ),
+      child: ExpansionTile(
+        leading: CircleAvatar(
+          backgroundColor: urgencyColor,
+          child: Text(task['urgency'][0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+        title: Text(
+          '${task['category']} - ${task['beneficiary_name']}',
+          style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+            Text(status, style: tt.bodySmall),
+          ],
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Divider(),
+                _infoRow(context, Icons.campaign_outlined, 'Campaign', task['campaign_title']),
+                _infoRow(context, Icons.phone_outlined, 'Phone', task['phone']?? 'N/A'),
+                _infoRow(context, Icons.location_on_outlined, 'Address', task['location']),
+                _infoRow(context, Icons.people_outline, 'Family Size', '${task['family_size']}'),
+                _infoRow(context, Icons.inventory_2_outlined, 'Items', items),
+                if (task['assigned_at']!= null)
+                  _infoRow(
+                    context,
+                    Icons.schedule,
+                    'Assigned',
+                    DateTime.parse(task['assigned_at']).toLocal().toString().substring(0, 16),
+                  ),
+                const SizedBox(height: 16),
+                _buildActionButton(context, task, status, canChat),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(BuildContext context, IconData icon, String label, String value) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: cs.onSurfaceVariant),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
+                const SizedBox(height: 2),
+                Text(value, style: tt.bodyMedium),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton(BuildContext context, Map t, String status, bool canChat) {
+    final cs = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (status == 'ASSIGNED')
+          FilledButton.icon(
+            onPressed: () => onUpdateStatus(t['id'], 'PICKED_UP'),
+            icon: const Icon(Icons.shopping_bag_outlined),
+            label: const Text('Mark Picked Up'),
+            style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          )
+        else if (status == 'PICKED_UP')
+          FilledButton.icon(
+            onPressed: () => onUpdateStatus(t['id'], 'IN_TRANSIT'),
+            icon: const Icon(Icons.local_shipping_outlined),
+            label: const Text('Mark In Transit'),
+            style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          )
+        else if (status == 'IN_TRANSIT')
+          FilledButton.icon(
+            onPressed: () => onShowDelivery(t['id']),
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: const Text('Mark Delivered + Photo'),
+            style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          )
+        else if (status == 'DELIVERED')
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle, color: Colors.green, size: 20),
+                const SizedBox(width: 8),
+                Text('Completed', style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.w600)),
+              ],
+            ),
+          ),
+        if (canChat)...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChatScreen(
+                    requestId: t['id'],
+                    otherUserName: t['beneficiary_name']?? 'Beneficiary',
+                  ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.chat_outlined),
+            label: const Text('Chat with Beneficiary'),
+            style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          ),
+        ],
+      ],
+    );
+  }
 }

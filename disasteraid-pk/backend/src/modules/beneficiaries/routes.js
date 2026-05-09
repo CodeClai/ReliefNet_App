@@ -5,22 +5,22 @@ const auth = require('../../middleware/auth');
 const Joi = require('joi');
 
 const aidRequestSchema = Joi.object({
-  campaign_id: Joi.number().integer().allow(null), // nullable for general
+  campaign_id: Joi.number().integer().allow(null),
   category: Joi.string().valid('FOOD', 'MEDICAL', 'SHELTER', 'CLOTHING', 'OTHER').required(),
-  items_needed: Joi.array().items(Joi.string()).min(1).required(), // Changed: min 1 required
+  items_needed: Joi.array().items(Joi.string()).min(1).required(),
   description: Joi.string().min(10).max(1000).required(),
   urgency: Joi.string().valid('LOW', 'MEDIUM', 'HIGH', 'CRITICAL').default('MEDIUM'),
   family_size: Joi.number().integer().min(1).max(50).default(1),
   location: Joi.string().min(5).required(),
-  latitude: Joi.number().min(-90).max(90).allow(null), // CHANGED from lat
-  longitude: Joi.number().min(-180).max(180).allow(null), // CHANGED from lng
+  latitude: Joi.number().min(-90).max(90).allow(null),
+  longitude: Joi.number().min(-180).max(180).allow(null),
 });
 
 // POST /api/aid-requests - Beneficiary creates request
 router.post('/aid-requests', auth('beneficiary'), async (req, res, next) => {
   try {
     const { error, value } = aidRequestSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
     const { campaign_id, category, items_needed, description, urgency, family_size, location, latitude, longitude } = value;
     let ngo_id = null;
@@ -33,11 +33,11 @@ router.post('/aid-requests', auth('beneficiary'), async (req, res, next) => {
         WHERE c.id = $1
       `, [campaign_id]);
 
-      if (!campaign.rows[0]) return res.status(404).json({ error: 'Campaign not found' });
-      if (campaign.rows[0].status!== 'ACTIVE') return res.status(400).json({ error: 'Campaign not active' });
-      if (campaign.rows[0].ngo_status!== 'APPROVED') return res.status(400).json({ error: 'NGO not verified' });
+      if (!campaign.rows[0]) return res.error('Campaign not found', 404);
+      if (campaign.rows[0].status!== 'ACTIVE') return res.error('Campaign not active', 400);
+      if (campaign.rows[0].ngo_status!== 'APPROVED') return res.error('NGO not verified', 400);
       if (campaign.rows[0].end_date && new Date(campaign.rows[0].end_date) < new Date()) {
-        return res.status(400).json({ error: 'Campaign has ended' });
+        return res.error('Campaign has ended', 400);
       }
       ngo_id = campaign.rows[0].ngo_id;
 
@@ -46,7 +46,7 @@ router.post('/aid-requests', auth('beneficiary'), async (req, res, next) => {
          WHERE beneficiary_id = $1 AND campaign_id = $2 AND status IN ('PENDING', 'APPROVED', 'ASSIGNED')`,
         [req.user.id, campaign_id]
       );
-      if (existing.rows[0]) return res.status(400).json({ error: 'You already have an active request for this campaign' });
+      if (existing.rows[0]) return res.error('You already have an active request for this campaign', 400);
     } else {
       const defaultNgo = await db.query(
         `SELECT id FROM ngo_profiles WHERE status='APPROVED' ORDER BY created_at ASC LIMIT 1`
@@ -59,11 +59,11 @@ router.post('/aid-requests', auth('beneficiary'), async (req, res, next) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING') RETURNING *`,
       [req.user.id, campaign_id, ngo_id, category, JSON.stringify(items_needed), description, urgency, family_size, location, latitude, longitude]
     );
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0], 201);
   } catch (e) { next(e); }
 });
 
-// GET /api/aid-requests/my - FIXED: LEFT JOIN for null campaign_id
+// GET /api/aid-requests/my
 router.get('/aid-requests/my', auth('beneficiary'), async (req, res, next) => {
   try {
     const result = await db.query(`
@@ -81,11 +81,11 @@ router.get('/aid-requests/my', auth('beneficiary'), async (req, res, next) => {
       ORDER BY a.created_at DESC
       LIMIT 50
     `, [req.user.id]);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-// GET /api/aid-requests/:id - FIXED: LEFT JOIN for null campaign_id
+// GET /api/aid-requests/:id
 router.get('/aid-requests/:id', auth('beneficiary'), async (req, res, next) => {
   try {
     const result = await db.query(`
@@ -101,8 +101,8 @@ router.get('/aid-requests/:id', auth('beneficiary'), async (req, res, next) => {
       WHERE a.id = $1 AND a.beneficiary_id = $2
     `, [req.params.id, req.user.id]);
 
-    if (!result.rows[0]) return res.status(404).json({ error: 'Request not found' });
-    res.json({ data: result.rows[0] });
+    if (!result.rows[0]) return res.error('Request not found', 404);
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 
@@ -114,8 +114,8 @@ router.delete('/aid-requests/:id', auth('beneficiary'), async (req, res, next) =
        WHERE id=$1 AND beneficiary_id=$2 AND status='PENDING' RETURNING *`,
       [req.params.id, req.user.id]
     );
-    if (!result.rows[0]) return res.status(400).json({ error: 'Cannot cancel this request' });
-    res.json({ success: true });
+    if (!result.rows[0]) return res.error('Cannot cancel this request', 400);
+    res.success({ message: 'Request cancelled' });
   } catch (e) { next(e); }
 });
 
@@ -135,7 +135,7 @@ router.get('/map', auth('volunteer'), async (req, res, next) => {
       ORDER BY a.created_at DESC
       LIMIT 100
     `, [status]);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 

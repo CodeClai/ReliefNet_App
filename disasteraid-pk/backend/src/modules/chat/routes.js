@@ -13,14 +13,13 @@ router.get('/:requestId', auth(), async (req, res, next) => {
   try {
     const { requestId } = req.params;
 
-    // Check user is part of this request
     const check = await db.query(`
       SELECT id FROM aid_requests
       WHERE id = $1 AND (beneficiary_id = $2 OR volunteer_id = $2)
     `, [requestId, req.user.id]);
 
     if (!check.rows[0]) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.error('Access denied', 403);
     }
 
     const result = await db.query(`
@@ -33,13 +32,12 @@ router.get('/:requestId', auth(), async (req, res, next) => {
       LIMIT 100
     `, [requestId]);
 
-    // Mark messages as read
     await db.query(`
       UPDATE messages SET read_at = CURRENT_TIMESTAMP
       WHERE request_id = $1 AND sender_id!= $2 AND read_at IS NULL
     `, [requestId, req.user.id]);
 
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
@@ -48,9 +46,8 @@ router.post('/:requestId', auth(), async (req, res, next) => {
   try {
     const { requestId } = req.params;
     const { error, value } = messageSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
-    // Check user is part of this request
     const check = await db.query(`
       SELECT a.id, a.beneficiary_id, a.volunteer_id
       FROM aid_requests a
@@ -58,7 +55,7 @@ router.post('/:requestId', auth(), async (req, res, next) => {
     `, [requestId, req.user.id]);
 
     if (!check.rows[0]) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.error('Access denied', 403);
     }
 
     const result = await db.query(
@@ -69,7 +66,6 @@ router.post('/:requestId', auth(), async (req, res, next) => {
 
     const msg = result.rows[0];
 
-    // Emit via socket to request room
     const io = req.app.get('io');
     io.to(`request_${requestId}`).emit('new_message', {
       id: msg.id,
@@ -81,7 +77,7 @@ router.post('/:requestId', auth(), async (req, res, next) => {
       created_at: msg.created_at
     });
 
-    res.json({ data: msg });
+    res.success(msg, 201);
   } catch (e) { next(e); }
 });
 
@@ -114,7 +110,7 @@ router.get('/', auth(), async (req, res, next) => {
       ORDER BY a.id, m.created_at DESC
     `, [req.user.id]);
 
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 

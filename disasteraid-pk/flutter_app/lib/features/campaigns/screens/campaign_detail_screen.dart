@@ -264,6 +264,7 @@ Future<void> _showManualDonateDialog() async {
     return Scaffold(
       body: _buildBody(),
       floatingActionButton:!loading && campaign!= null && campaign!.status == 'ACTIVE'
+          && (campaign!.endDate == null || campaign!.endDate!.isAfter(DateTime.now()))
         ? FloatingActionButton.extended(
               onPressed: _showDonateDialog,
               icon: const Icon(Icons.favorite),
@@ -577,17 +578,19 @@ class _DonateSheetState extends State<DonateSheet> {
       });
 
       if (mounted) {
-        final txnRef = res.data['transaction_ref'];
+        final txnRef = res.data?['transaction_ref']?.toString();
+        final refDisplay = txnRef != null && txnRef.length >= 8 ? txnRef.substring(0, 8) : (txnRef ?? 'OK');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Donation successful! Ref: ${txnRef.substring(0, 8)}...'),
+            content: Text('Donation successful! Ref: $refDisplay...'),
             backgroundColor: Colors.green,
           ),
         );
         widget.onSuccess();
       }
     } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Donation failed';
+      final apiErr = e.error;
+      final msg = apiErr is ApiException ? apiErr.message : (e.message ?? 'Donation failed');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }

@@ -120,18 +120,17 @@ class _AppShellState extends State<AppShell> {
     super.dispose();
   }
 
-  Future<void> _fetchNgoStatus() async {
-    try {
-      final api = ApiClient();
-      final res = await api.dio.get('/ngos/me');
-      setState(() => _ngoStatus = res.data['data']?['status']);
-    } catch (e) {
-      setState(() => _ngoStatus = null);
-    } finally {
-      setState(() => _loadingStatus = false);
-    }
+Future<void> _fetchNgoStatus() async {
+  try {
+    final api = ApiClient();
+    final res = await api.dio.get('/ngos/me');
+    setState(() => _ngoStatus = res.data?['status']); // FIXED: removed ['data']
+  } catch (e) {
+    setState(() => _ngoStatus = null);
+  } finally {
+    setState(() => _loadingStatus = false);
   }
-
+}
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;

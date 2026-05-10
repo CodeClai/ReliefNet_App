@@ -20,25 +20,28 @@ class _NgoBankDetailsScreenState extends State<NgoBankDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadDetails();
+    _loadDetails(); // This calls the method
   }
 
   Future<void> _loadDetails() async {
     try {
-      final res = await _api.dio.get('/ngos/profile');
-      final data = res.data['data'];
+      final res = await _api.dio.get('/ngos/me');
+      final data = res.data; // Already unwrapped by ApiClient
       _bankName.text = data['bank_name']?? '';
       _accountTitle.text = data['bank_account_title']?? '';
       _accountNumber.text = data['bank_account_number']?? '';
       _iban.text = data['bank_iban']?? '';
-    } catch (e) {}
+      setState(() {});
+    } catch (e) {
+      // Silent fail, form stays empty
+    }
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
-      await _api.dio.patch('/ngos/profile', data: {
+      await _api.dio.put('/ngos/bank-details', data: {
         'bank_name': _bankName.text.trim(),
         'bank_account_title': _accountTitle.text.trim(),
         'bank_account_number': _accountNumber.text.trim(),
@@ -48,10 +51,13 @@ class _NgoBankDetailsScreenState extends State<NgoBankDetailsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Bank details saved'), backgroundColor: Colors.green),
         );
+        Navigator.pop(context, true);
       }
     } on DioException catch (e) {
       final msg = e.response?.data['error']?? 'Save failed';
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), backgroundColor: Colors.red),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -66,7 +72,8 @@ class _NgoBankDetailsScreenState extends State<NgoBankDetailsScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Text('Donors will transfer to this account. Must match your NGO name.', style: TextStyle(color: Colors.orange)),
+            const Text('Donors will transfer to this account. Must match your NGO name.', 
+              style: TextStyle(color: Colors.orange)),
             const SizedBox(height: 24),
             TextFormField(
               controller: _bankName,

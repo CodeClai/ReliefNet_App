@@ -1,3 +1,4 @@
+import 'package:disasteraid_pk/features/ngo/ngo_onboard_screen.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -12,6 +13,7 @@ class NGODashboardScreen extends StatefulWidget {
 }
 
 class _NGODashboardScreenState extends State<NGODashboardScreen> {
+  Map<String, dynamic>? _ngoProfile; // ADDED: Check status first
   Map<String, dynamic> _stats = {};
   List<FlSpot> _chartData = [];
   List _recentDonations = [];
@@ -23,15 +25,37 @@ class _NGODashboardScreenState extends State<NGODashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _loadDashboard();
+    _loadData();
   }
 
-  Future<void> _loadDashboard() async {
+  Future<void> _loadData() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
+      // 1. Check NGO profile + status FIRST
+      final profileRes = await _api.dio.get('/ngos/me');
+      _ngoProfile = profileRes.data;
+
+      // If no profile, go to onboarding
+      if (_ngoProfile == null) {
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const NgoOnboardScreen()),
+          );
+        }
+        return;
+      }
+
+      // If not approved, don't load dashboard data
+      if (_ngoProfile!['status']!= 'APPROVED') {
+        setState(() => _loading = false);
+        return;
+      }
+
+      // 2. Load dashboard only if APPROVED
       final results = await Future.wait([
         _api.dio.get('/ngos/dashboard/stats'),
         _api.dio.get('/ngos/dashboard/chart?days=30'),
@@ -46,7 +70,6 @@ class _NGODashboardScreenState extends State<NGODashboardScreen> {
 
       if (mounted) {
         setState(() {
-          // ApiClient unwraps {success, data}
           _stats = results[0].data;
           _chartData = spots;
           _recentDonations = results[2].data as List;
@@ -82,7 +105,7 @@ class _NGODashboardScreenState extends State<NGODashboardScreen> {
     final tt = Theme.of(context).textTheme;
 
     return RefreshIndicator(
-      onRefresh: _loadDashboard,
+      onRefresh: _loadData,
       child: AnimatedSwitcher(
         duration: const Duration(milliseconds: 200),
         child: _buildBody(cs, tt),
@@ -92,48 +115,117 @@ class _NGODashboardScreenState extends State<NGODashboardScreen> {
 
   Widget _buildBody(ColorScheme cs, TextTheme tt) {
     if (_loading) return _buildShimmer();
-    if (_error!= null) return ErrorState(message: _error!, onRetry: _loadDashboard);
+    if (_error!= null) return ErrorState(message: _error!, onRetry: _loadData);
 
+    // GATE: Check NGO status before showing dashboard
+    if (_ngoProfile == null) {
+      return const SizedBox(); // Will redirect in _loadData
+    }
+
+    final status = _ngoProfile!['status'];
+    if (status == 'PENDING') return _buildPendingScreen(cs, tt);
+    if (status == 'REJECTED') return _buildRejectedScreen(cs, tt);
+
+    return _buildDashboard(cs, tt); // status == 'APPROVED'
+  }
+
+  Widget _buildPendingScreen(ColorScheme cs, TextTheme tt) {
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.hourglass_top, size: 80, color: Colors.orange),
+              const SizedBox(height: 24),
+              Text(
+                'Verification Pending',
+                style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Your documents are under review by admin. This usually takes 24-48 hours.',
+                textAlign: TextAlign.center,
+                style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.surfaceVariant,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _ngoProfile!['org_name']?? '',
+                  style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(height: 24),
+              OutlinedButton.icon(
+                onPressed: _loadData,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Check Status'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRejectedScreen(ColorScheme cs, TextTheme tt) {
+    final reason = _ngoProfile!['rejection_reason'];
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.cancel, size: 80, color: Colors.red),
+              const SizedBox(height: 24),
+              Text(
+                'Verification Rejected',
+                style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              if (reason!= null)...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red[50],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    reason,
+                    textAlign: TextAlign.center,
+                    style: tt.bodyMedium?.copyWith(color: Colors.red[900]),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+              FilledButton(
+                onPressed: () => Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const NgoOnboardScreen()),
+                ),
+                child: const Text('Resubmit Documents'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboard(ColorScheme cs, TextTheme tt) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // Verification Banner
-        if (_stats['is_verified'] == false)
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.amber.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.amber),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.info_outline, color: Colors.amber[800]),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Verification Pending',
-                        style: tt.titleSmall?.copyWith(
-                          color: Colors.amber[900],
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Complete your profile to withdraw funds',
-                        style: tt.bodySmall?.copyWith(color: Colors.amber[900]),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
         Text('Overview', style: tt.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 16),
         _buildKpiGrid(cs, tt),
@@ -312,7 +404,7 @@ class _NGODashboardScreenState extends State<NGODashboardScreen> {
                 Text('Recent Donations', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
                 if (_recentDonations.isNotEmpty)
                   TextButton(
-                    onPressed: () {}, // TODO: Navigate to full list
+                    onPressed: () {},
                     child: const Text('View All'),
                   ),
               ],
@@ -332,7 +424,7 @@ class _NGODashboardScreenState extends State<NGODashboardScreen> {
                 ),
               )
             else
-            ..._recentDonations.take(5).map((d) => ListTile(
+           ..._recentDonations.take(5).map((d) => ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
                       backgroundColor: cs.secondaryContainer,

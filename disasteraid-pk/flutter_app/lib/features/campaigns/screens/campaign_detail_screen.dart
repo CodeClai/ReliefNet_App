@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart'; // ADDED
+import 'dart:io'; // ADDED
 import '../../../core/api/api_client.dart';
 import '../services/campaign_service.dart';
 import '../models/campaign.dart';
@@ -83,7 +85,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
               trailing: const Chip(label: Text('ACTIVE'), visualDensity: VisualDensity.compact),
               onTap: () {
                 Navigator.pop(ctx);
-                _showManualDonateSheet();
+                _showManualDonateDialog(); // CHANGED
               },
             ),
             const SizedBox(height: 8),
@@ -107,17 +109,141 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
       ),
     );
   }
+Future<void> _showManualDonateDialog() async {
+  final amountController = TextEditingController();
+  File? proofFile;
+  bool loading = false;
 
-  void _showManualDonateSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) => ManualDonateSheet(
-        campaignId: campaign!.id,
-        campaignTitle: campaign!.title,
+  // Check if platform bank details exist
+  if (campaign!.platformBankName == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Platform bank details not configured')),
+    );
+    return;
+  }
+
+  showDialog(
+    context: context,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setState) => AlertDialog(
+        title: const Text('Donate to Campaign'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Transfer to DisasterAid PK account:', 
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.blue[50],
+                  border: Border.all(color: Colors.blue[200]!),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildBankRow('Bank', campaign!.platformBankName),
+                    _buildBankRow('Title', campaign!.platformAccountTitle),
+                    _buildBankRow('Account', campaign!.platformAccountNumber),
+                    _buildBankRow('IBAN', campaign!.platformIban),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('After transfer, upload screenshot below', 
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orange[800])),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: amountController,
+                decoration: const InputDecoration(
+                  labelText: 'Amount You Transferred *',
+                  prefixText: 'PKR ',
+                  border: OutlineInputBorder(),
+                  helperText: 'Enter exact amount sent',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                onPressed: () async {
+                  final result = await FilePicker.platform.pickFiles(type: FileType.image);
+                  if (result!= null) {
+                    setState(() => proofFile = File(result.files.single.path!));
+                  }
+                },
+                icon: Icon(proofFile == null? Icons.upload_file : Icons.check_circle,
+                  color: proofFile == null? null : Colors.green),
+                label: Text(proofFile == null? 'Upload Transfer Screenshot *' : 'Screenshot Selected'),
+              ),
+              if (proofFile!= null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text('File: ${proofFile!.path.split('/').last}',
+                    style: const TextStyle(fontSize: 12, color: Colors.green)),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: loading || proofFile == null || amountController.text.isEmpty
+              ? null
+              : () async {
+                  setState(() => loading = true);
+                  try {
+                    final formData = FormData.fromMap({
+                      'campaign_id': campaign!.id,
+                      'amount': amountController.text.trim(),
+                      'proof': await MultipartFile.fromFile(proofFile!.path),
+                    });
+                    await ApiClient().dio.post('/donations/manual', data: formData);
+                    if (context.mounted) {
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Donation submitted for verification'),
+                          backgroundColor: Colors.green,
+                        ),
+                      );
+                      _load();
+                    }
+                  } on DioException catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(e.response?.data['error']?? 'Failed to submit')),
+                      );
+                    }
+                  }
+                  setState(() => loading = false);
+                },
+            child: loading
+              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Submit Donation'),
+          ),
+        ],
       ),
-    ).then((_) => _load());
+    ),
+  );
+}
+
+  Widget _buildBankRow(String label, String? value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 70, child: Text('$label:', style: const TextStyle(fontWeight: FontWeight.w600))),
+          Expanded(child: Text(value?? 'Not available', style: const TextStyle(fontFamily: 'monospace'))),
+        ],
+      ),
+    );
   }
 
   Color _statusColor(String status) {
@@ -138,7 +264,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
     return Scaffold(
       body: _buildBody(),
       floatingActionButton:!loading && campaign!= null && campaign!.status == 'ACTIVE'
-         ? FloatingActionButton.extended(
+        ? FloatingActionButton.extended(
               onPressed: _showDonateDialog,
               icon: const Icon(Icons.favorite),
               label: const Text('Donate Now'),
@@ -246,7 +372,7 @@ class _CampaignDetailScreenState extends State<CampaignDetailScreen> {
           ],
           flexibleSpace: FlexibleSpaceBar(
             background: c.imageUrl!= null
-               ? CachedNetworkImage(
+              ? CachedNetworkImage(
                     imageUrl: c.imageUrl!,
                     fit: BoxFit.cover,
                     errorWidget: (_, __, ___) => Container(
@@ -498,12 +624,12 @@ class _DonateSheetState extends State<DonateSheet> {
             Wrap(
               spacing: 8,
               children: _quickAmounts
-                 .map((amt) => ChoiceChip(
+                .map((amt) => ChoiceChip(
                         label: Text('PKR $amt'),
                         selected: _amountController.text == amt.toString(),
                         onSelected: (_) => setState(() => _amountController.text = amt.toString()),
                       ))
-                 .toList(),
+                .toList(),
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -548,8 +674,8 @@ class _DonateSheetState extends State<DonateSheet> {
                 border: OutlineInputBorder(),
               ),
               items: ['MOCK', 'JAZZCASH', 'EASYPAISA', 'STRIPE']
-                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                 .toList(),
+                .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                .toList(),
               onChanged: (v) => setState(() => _paymentMethod = v!),
             ),
             const SizedBox(height: 24),
@@ -562,7 +688,7 @@ class _DonateSheetState extends State<DonateSheet> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 child: _loading
-                   ? const SizedBox(
+                  ? const SizedBox(
                         height: 20,
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),

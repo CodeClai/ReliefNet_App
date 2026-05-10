@@ -1,6 +1,7 @@
 import 'package:disasteraid_pk/features/admin/admin_audit_screen.dart';
 import 'package:disasteraid_pk/features/admin/admin_request_screen.dart';
 import 'package:disasteraid_pk/features/admin/admin_reports_screen.dart';
+import 'package:disasteraid_pk/features/admin/admin_donations_screen.dart'; // ADDED
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
@@ -26,9 +27,10 @@ class _AdminDashboardState extends State<AdminDashboard> {
   final _api = ApiClient();
 
   final List<Widget> _screens = [
-    const _AdminStatsTab(), // Extracted to separate widget
+    const _AdminStatsTab(),
     const AdminNgosScreen(),
     const AdminCampaignsScreen(),
+    const AdminDonationsScreen(), // ADDED
     const AdminWithdrawalsScreen(),
     const AdminRequestsScreen(),
     const AdminReportsScreen(),
@@ -71,6 +73,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
             icon: Icon(Icons.campaign_outlined),
             selectedIcon: Icon(Icons.campaign),
             label: 'Campaigns',
+          ),
+          // ADDED: Donations tab
+          NavigationDestination(
+            icon: Icon(Icons.payments_outlined),
+            selectedIcon: Icon(Icons.payments),
+            label: 'Donations',
           ),
           NavigationDestination(
             icon: Icon(Icons.account_balance_wallet_outlined),
@@ -123,7 +131,7 @@ class _AdminStatsTabState extends State<_AdminStatsTab> {
     try {
       final res = await _api.dio.get('/admin/stats');
       if (mounted) {
-        setState(() { _stats = res.data; _loading = false; }); // ApiClient unwraps
+        setState(() { _stats = res.data; _loading = false; });
       }
     } on ApiException catch (e) {
       if (mounted) setState(() { _error = e.message; _loading = false; });

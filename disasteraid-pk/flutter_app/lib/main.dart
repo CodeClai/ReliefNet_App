@@ -1,14 +1,18 @@
-
 import 'package:disasteraid_pk/core/api/api_client.dart';
 import 'package:disasteraid_pk/core/auth/auth_provider.dart';
+import 'package:disasteraid_pk/core/services/socket_service.dart';
 import 'package:disasteraid_pk/features/admin/admin_dashboard.dart';
 import 'package:disasteraid_pk/features/auth/login_screen.dart';
 import 'package:disasteraid_pk/features/auth/register_screen.dart';
+import 'package:disasteraid_pk/features/beneficiaries/screens/beneficiary_dashboard.dart';
 import 'package:disasteraid_pk/features/campaigns/screens/campaign_create_screen.dart';
-import 'package:disasteraid_pk/features/campaigns/screens/campaign_list_screen.dart';
+import 'package:disasteraid_pk/features/chat/screens/services/chat_badge_provider.dart';
+import 'package:disasteraid_pk/features/donor/donor_dashboard.dart';
+import 'package:disasteraid_pk/features/maps/campaign_map_screen.dart';
 import 'package:disasteraid_pk/features/ngo/ngo_dashboard.dart';
 import 'package:disasteraid_pk/features/ngo/ngo_onboard_screen.dart';
-import 'package:disasteraid_pk/features/volunteers/screens/volunteer_tasks_screen.dart';
+import 'package:disasteraid_pk/features/volunteers/complete_profile_screen.dart';
+import 'package:disasteraid_pk/features/volunteers/volunteer_dashboard.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
@@ -23,8 +27,11 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthProvider()..checkAuth(),
+    return MultiProvider( // CHANGED FROM ChangeNotifierProvider
+      providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()..checkAuth()),
+        ChangeNotifierProvider(create: (_) => ChatBadgeProvider()), // ADD THIS
+      ],
       child: Consumer<AuthProvider>(
         builder: (context, auth, _) {
           return MaterialApp(
@@ -34,12 +41,15 @@ class MyApp extends StatelessWidget {
               useMaterial3: true,
             ),
             debugShowCheckedModeBanner: false,
-            home: !auth.isAuthenticated? const LoginScreen() : const AppShell(),
+            initialRoute: auth.isAuthenticated ? '/' : '/login',
             routes: {
+              '/': (_) => const AppShell(),
               '/login': (_) => const LoginScreen(),
               '/register': (_) => const RegisterScreen(),
               '/ngo/onboard': (_) => const NgoOnboardScreen(),
               '/campaign/create': (_) => const CampaignCreateScreen(),
+              '/volunteer/complete-profile': (_) => const CompleteProfileScreen(),
+              '/map' : (_) => const CampaignMapScreen(),
             },
           );
         },
@@ -57,6 +67,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   String? _ngoStatus;
   bool _loadingStatus = true;
+  final GlobalKey<ScaffoldMessengerState> _scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   void initState() {
@@ -69,18 +80,57 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  Future<void> _fetchNgoStatus() async {
-    try {
-      final api = ApiClient();
-      final res = await api.dio.get('/ngos/me');
-      setState(() => _ngoStatus = res.data['data']?['status']);
-    } catch (e) {
-      setState(() => _ngoStatus = null);
-    } finally {
-      setState(() => _loadingStatus = false);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final user = context.read<AuthProvider>().user;
+    if (user != null && user['id'] != null) {
+      SocketService().connect(user['id']);
+      
+      // Load unread chat count on login
+      context.read<ChatBadgeProvider>().refreshUnread(); // ADD THIS
+      
+      SocketService().onNotification = (data) {
+        _scaffoldMessengerKey.currentState?.showSnackBar(
+          SnackBar(
+            content: Text(data['title'] ?? 'New notification'),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'View',
+              onPressed: () {
+                // TODO: Navigate to notifications screen
+              },
+            ),
+          ),
+        );
+      };
+
+      // ADD THIS: Refresh badge on new message
+      SocketService().on('new_message', (data) {
+        if (mounted) {
+          context.read<ChatBadgeProvider>().refreshUnread();
+        }
+      });
     }
   }
 
+  @override
+  void dispose() {
+    SocketService().disconnect();
+    super.dispose();
+  }
+
+Future<void> _fetchNgoStatus() async {
+  try {
+    final api = ApiClient();
+    final res = await api.dio.get('/ngos/me');
+    setState(() => _ngoStatus = res.data?['status']); // FIXED: removed ['data']
+  } catch (e) {
+    setState(() => _ngoStatus = null);
+  } finally {
+    setState(() => _loadingStatus = false);
+  }
+}
   @override
   Widget build(BuildContext context) {
     final user = context.watch<AuthProvider>().user;
@@ -88,22 +138,19 @@ class _AppShellState extends State<AppShell> {
 
     if (_loadingStatus) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
-    switch (role) {
-      case 'admin':
-        return const AdminDashboard();
-      case 'ngo':
-        if (_ngoStatus == 'APPROVED') return const NgoDashboard();
-        return NgoStatusScreen(status: _ngoStatus, onRefresh: _fetchNgoStatus);
-      case 'donor':
-        return const CampaignListScreen();
-      case 'volunteer':
-        return const VolunteerTasksScreen();
-      case 'beneficiary':
-        // Beneficiary needs to pick a campaign first, so show campaign list
-        return const CampaignListScreen();
-      default:
-        return const LoginScreen();
-    }
+    return ScaffoldMessenger(
+      key: _scaffoldMessengerKey,
+      child: switch (role) {
+        'admin' => const AdminDashboard(),
+        'ngo' => _ngoStatus == 'APPROVED' 
+           ? const NgoDashboard() 
+            : NgoStatusScreen(status: _ngoStatus, onRefresh: _fetchNgoStatus),
+        'donor' => const DonorDashboard(),
+        'volunteer' => const VolunteerDashboard(),
+        'beneficiary' => const BeneficiaryDashboard(),
+        _ => const LoginScreen(),
+      },
+    );
   }
 }
 

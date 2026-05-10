@@ -1,6 +1,13 @@
-import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:intl/intl.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../core/api/api_client.dart';
+import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/error_state.dart';
 
 class AdminWithdrawalsScreen extends StatefulWidget {
   const AdminWithdrawalsScreen({super.key});
@@ -14,6 +21,7 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
   String _filter = 'PENDING';
   String? _error;
   final _api = ApiClient();
+  final _currency = NumberFormat.currency(locale: 'en_PK', symbol: 'PKR ', decimalDigits: 0);
 
   @override
   void initState() {
@@ -24,125 +32,188 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
   Future<void> _loadWithdrawals() async {
     setState(() { _loading = true; _error = null; });
     try {
-
-
-      // final params = _filter == 'ALL'? {} : {'status': _filter};
-
-      final params = (_filter == 'ALL'
-    ? <String, dynamic>{}
-    : {'status': _filter});
-
-
+      final params = _filter == 'ALL'? <String, dynamic>{} : {'status': _filter};
       final res = await _api.dio.get('/admin/withdrawals', queryParameters: params);
-      setState(() { _withdrawals = res.data['data']; _loading = false; });
+      if (mounted) {
+        setState(() { _withdrawals = res.data as List; _loading = false; }); // ApiClient unwraps
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _error = e.message; _loading = false; });
     } catch (e) {
-      setState(() {
-        _error = e.toString().replaceAll('Exception: ', '');
-        _loading = false;
-      });
+      if (mounted) setState(() { _error = 'Failed to load withdrawals'; _loading = false; });
     }
   }
 
-  Future<void> _processWithdrawal(int id, String action, double amount) async {
-    String? ref;
-    String? reason;
+  Future<void> _approveWithdrawal(int id) async {
+    final notes = await _showApproveDialog();
+    if (notes == null) return;
+    await _submitStatus(id, 'APPROVED', adminNotes: notes);
+  }
 
-    if (action == 'APPROVED') {
-      ref = await showDialog<String>(
-        context: context,
-        builder: (context) {
-          final ctrl = TextEditingController();
-          return AlertDialog(
-            title: const Text('Approve Withdrawal'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Amount: PKR ${amount.toInt()}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: ctrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Transaction Reference',
-                    hintText: 'Bank transfer ID',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              FilledButton(
-                onPressed: () {
-                  if (ctrl.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reference required')));
-                    return;
-                  }
-                  Navigator.pop(context, ctrl.text.trim());
-                },
-                child: const Text('Approve'),
-              ),
-            ],
-          );
-        },
-      );
-      if (ref == null) return;
-    } else {
-      reason = await showDialog<String>(
-        context: context,
-        builder: (context) {
-          final ctrl = TextEditingController();
-          return AlertDialog(
-            title: const Text('Reject Withdrawal'),
-            content: TextField(
+  Future<String?> _showApproveDialog() async {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Approve Withdrawal'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('This marks the request as approved. You still need to transfer money and upload proof to complete.'),
+            const SizedBox(height: 16),
+            TextField(
               controller: ctrl,
               decoration: const InputDecoration(
-                labelText: 'Rejection Reason',
+                labelText: 'Admin Notes (Optional)',
                 border: OutlineInputBorder(),
               ),
-              maxLines: 3,
+              maxLines: 2,
+              textCapitalization: TextCapitalization.sentences,
             ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-              FilledButton(
-                onPressed: () {
-                  if (ctrl.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reason required')));
-                    return;
-                  }
-                  Navigator.pop(context, ctrl.text.trim());
-                },
-                child: const Text('Reject'),
-                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, ctrl.text.trim()), child: const Text('Approve')),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _completeWithdrawal(int id, double amount) async {
+    final picker = ImagePicker();
+    final img = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (img == null) return;
+
+    final notesCtrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Complete Withdrawal'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Confirm you transferred ${_currency.format(amount)} to the NGO bank account.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: notesCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Transaction Ref / Notes *',
+                hintText: 'Bank transfer ID',
+                border: OutlineInputBorder(),
               ),
-            ],
-          );
-        },
-      );
-      if (reason == null) return;
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Complete')),
+        ],
+      ),
+    );
+    if (confirmed!= true || notesCtrl.text.trim().isEmpty) {
+      if (mounted && notesCtrl.text.trim().isEmpty) {
+        _showError('Transaction reference required');
+      }
+      return;
     }
 
+    await _submitStatus(id, 'COMPLETED', adminNotes: notesCtrl.text.trim(), proofFile: img);
+  }
+
+  Future<void> _rejectWithdrawal(int id) async {
+    final reason = await _showRejectDialog();
+    if (reason == null) return;
+    await _submitStatus(id, 'REJECTED', rejectionReason: reason);
+  }
+
+  Future<String?> _showRejectDialog() async {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reject Withdrawal'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            labelText: 'Rejection Reason *',
+            hintText: 'Invalid bank details, insufficient docs...',
+            border: OutlineInputBorder(),
+          ),
+          maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () {
+              if (controller.text.trim().isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Reason required')),
+                );
+                return;
+              }
+              Navigator.pop(context, controller.text.trim());
+            },
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _submitStatus(int id, String status, {String? adminNotes, String? rejectionReason, XFile? proofFile}) async {
     try {
-      await _api.dio.patch('/admin/withdrawals/$id', data: {
-        'status': action,
-        'transaction_ref': ref,
-        'rejection_reason': reason,
-      });
+      FormData formData;
+      if (proofFile!= null) {
+        formData = FormData.fromMap({
+          'status': status,
+          'admin_notes': adminNotes,
+          'proof': await MultipartFile.fromFile(proofFile.path),
+        });
+      } else {
+        formData = FormData.fromMap({
+          'status': status,
+          if (adminNotes!= null) 'admin_notes': adminNotes,
+          if (rejectionReason!= null) 'rejection_reason': rejectionReason,
+        });
+      }
+
+      await _api.dio.patch('/admin/withdrawals/$id', data: formData);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Withdrawal $action'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text('Withdrawal ${status.toLowerCase()}'),
+            backgroundColor: Colors.green,
+          ),
         );
         _loadWithdrawals();
       }
-    } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Failed to process';
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.message);
+    }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _openDoc(String url) async {
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) _showError('Could not open document');
     }
   }
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'APPROVED': return Colors.green;
+      case 'COMPLETED': return Colors.green;
+      case 'APPROVED': return Colors.blue;
       case 'REJECTED': return Colors.red;
       case 'PENDING': return Colors.orange;
       default: return Colors.grey;
@@ -151,13 +222,17 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
     return Column(
       children: [
+        // Filter Chips
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
-            children: ['ALL', 'PENDING', 'APPROVED', 'REJECTED'].map((f) =>
+            children: ['ALL', 'PENDING', 'APPROVED', 'COMPLETED', 'REJECTED'].map((f) =>
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilterChip(
@@ -170,122 +245,319 @@ class _AdminWithdrawalsScreenState extends State<AdminWithdrawalsScreen> {
           ),
         ),
         Expanded(
-          child: _loading
-         ? const Center(child: CircularProgressIndicator())
-            : _error!= null
-         ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text('Error: $_error'),
-                      const SizedBox(height: 16),
-                      FilledButton(onPressed: _loadWithdrawals, child: const Text('Retry')),
-                    ],
-                  ),
-                )
-            : _withdrawals.isEmpty
-         ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.inbox, size: 80, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text('No $_filter withdrawals', style: const TextStyle(fontSize: 18)),
-                    ],
-                  ),
-                )
-                : RefreshIndicator(
-                    onRefresh: _loadWithdrawals,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _withdrawals.length,
-                      itemBuilder: (context, i) {
-                        final w = _withdrawals[i];
-                        final amount = double.tryParse(w['amount']?.toString()?? '0')?? 0;
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: ExpansionTile(
-                            leading: CircleAvatar(
-                              backgroundColor: _statusColor(w['status']).withOpacity(0.1),
-                              child: Text(
-                                'PKR',
-                                style: TextStyle(color: _statusColor(w['status']), fontSize: 10, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                            title: Text(
-                              'PKR ${amount.toInt()} - ${w['org_name']}',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text('${w['bank_name']} | ${w['created_at']?.toString().split('T')[0]?? ''}'),
-                            trailing: Chip(
-                              label: Text(w['status'], style: const TextStyle(fontSize: 11)),
-                              backgroundColor: _statusColor(w['status']).withOpacity(0.1),
-                              labelStyle: TextStyle(color: _statusColor(w['status'])),
-                            ),
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _detailRow('Account Title', w['account_title']),
-                                    _detailRow('Account Number', w['account_number']),
-                                    if (w['iban']!= null) _detailRow('IBAN', w['iban']),
-                                    if (w['transaction_ref']!= null)
-                                      _detailRow('Transaction Ref', w['transaction_ref'], Colors.green),
-                                    if (w['rejection_reason']!= null)
-                                      _detailRow('Rejection Reason', w['rejection_reason'], Colors.red),
-                                    if (w['processed_at']!= null)
-                                      _detailRow('Processed At', w['processed_at'].toString().split('T')[0]),
-                                    const SizedBox(height: 16),
-                                    if (w['status'] == 'PENDING')
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: OutlinedButton.icon(
-                                              onPressed: () => _processWithdrawal(w['id'], 'REJECTED', amount),
-                                              icon: const Icon(Icons.close),
-                                              label: const Text('Reject'),
-                                              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 12),
-                                          Expanded(
-                                            child: FilledButton.icon(
-                                              onPressed: () => _processWithdrawal(w['id'], 'APPROVED', amount),
-                                              icon: const Icon(Icons.check),
-                                              label: const Text('Approve'),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _buildBody(cs, tt),
+          ),
         ),
       ],
     );
   }
 
-  Widget _detailRow(String label, String? value, [Color? color]) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text('$label:', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w500)),
+  Widget _buildBody(ColorScheme cs, TextTheme tt) {
+    if (_loading) return _buildShimmer();
+    if (_error!= null) return ErrorState(message: _error!, onRetry: _loadWithdrawals);
+    if (_withdrawals.isEmpty) return _buildEmptyState(cs, tt);
+    return _buildWithdrawalList(cs, tt);
+  }
+
+  Widget _buildShimmer() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 4,
+      itemBuilder: (_, __) => Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: Container(
+          height: 140,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
           ),
-          Expanded(child: Text(value?? 'N/A', style: TextStyle(color: color))),
-        ],
+        ),
       ),
     );
+  }
+
+  Widget _buildEmptyState(ColorScheme cs, TextTheme tt) {
+    return EmptyState(
+      icon: Icons.account_balance_wallet_outlined,
+      title: 'No $_filter withdrawals',
+      subtitle: _filter == 'PENDING'
+   ? 'Withdrawal requests from NGOs will appear here'
+        : 'No withdrawals found with this status',
+    );
+  }
+
+  Widget _buildWithdrawalList(ColorScheme cs, TextTheme tt) {
+    return RefreshIndicator(
+      onRefresh: _loadWithdrawals,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _withdrawals.length,
+        itemBuilder: (context, i) {
+          final w = _withdrawals[i];
+          final amount = _parseAmount(w['amount']);
+          final status = w['status']?? 'PENDING';
+          final statusColor = _statusColor(status);
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: cs.outlineVariant),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                // Status Bar
+                Container(height: 4, color: statusColor),
+                ExpansionTile(
+                  leading: CircleAvatar(
+                    backgroundColor: statusColor.withOpacity(0.15),
+                    child: Icon(Icons.account_balance_wallet_outlined, color: statusColor, size: 22),
+                  ),
+                  title: Text(
+                    '${_currency.format(amount)} - ${w['org_name']}',
+                    style: tt.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text(
+                        '${w['bank_name']} | ${_formatDate(w['requested_at'])}',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      status,
+                      style: tt.labelSmall?.copyWith(
+                        color: statusColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 1),
+                          const SizedBox(height: 16),
+
+                          // Bank Details
+                          _detailRow(Icons.person_outline, 'Account Title', w['account_title'], cs, tt),
+                          const SizedBox(height: 12),
+                          _detailRow(Icons.numbers_outlined, 'Account Number', w['account_number'], cs, tt),
+                          const SizedBox(height: 12),
+                          _detailRow(Icons.credit_card_outlined, 'IBAN', w['iban'], cs, tt),
+                          const SizedBox(height: 12),
+                          _detailRow(Icons.email_outlined, 'Requester', w['requester_email'], cs, tt),
+
+                          // Admin Notes
+                          if (w['admin_notes']!= null)...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.notes_outlined, size: 16, color: Colors.blue[700]),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Admin Notes',
+                                        style: tt.labelMedium?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.blue[700],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(w['admin_notes'], style: tt.bodyMedium),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          // Rejection Reason
+                          if (w['rejection_reason']!= null)...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.red.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.red.withOpacity(0.3)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.error_outline, size: 16, color: Colors.red[700]),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Rejection Reason',
+                                        style: tt.labelMedium?.copyWith(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.red[700],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(w['rejection_reason'], style: tt.bodyMedium),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          // Transfer Proof
+                          if (w['transfer_proof_url']!= null)...[
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: () => _openDoc(w['transfer_proof_url']),
+                                icon: const Icon(Icons.image_outlined),
+                                label: const Text('View Transfer Proof'),
+                                style: OutlinedButton.styleFrom(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                              ),
+                            ),
+                          ],
+
+                          // Processed Date
+                          if (w['processed_at']!= null)...[
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Icon(Icons.check_circle_outline, size: 16, color: Colors.green[700]),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Processed: ${_formatDate(w['processed_at'])}',
+                                  style: tt.bodySmall?.copyWith(color: Colors.green[700]),
+                                ),
+                              ],
+                            ),
+                          ],
+
+                          // Actions
+                          const SizedBox(height: 16),
+                          if (w['status'] == 'PENDING')
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _rejectWithdrawal(w['id']),
+                                    icon: const Icon(Icons.close),
+                                    label: const Text('Reject'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      padding: const EdgeInsets.all(12),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: () => _approveWithdrawal(w['id']),
+                                    icon: const Icon(Icons.check),
+                                    label: const Text('Approve'),
+                                    style: FilledButton.styleFrom(
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      padding: const EdgeInsets.all(12),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          if (w['status'] == 'APPROVED')
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.icon(
+                                onPressed: () => _completeWithdrawal(w['id'], amount),
+                                icon: const Icon(Icons.upload_file_outlined),
+                                label: const Text('Upload Proof & Complete'),
+                                style: FilledButton.styleFrom(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.all(12),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String? value, ColorScheme cs, TextTheme tt) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: cs.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value?? 'N/A',
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  double _parseAmount(dynamic val) {
+    if (val == null) return 0;
+    if (val is num) return val.toDouble();
+    return double.tryParse(val.toString())?? 0;
+  }
+
+  String _formatDate(dynamic date) {
+    if (date == null) return 'N/A';
+    try {
+      final dt = DateTime.parse(date.toString());
+      return DateFormat('dd MMM yyyy').format(dt);
+    } catch (e) {
+      return date.toString().split('T')[0];
+    }
   }
 }

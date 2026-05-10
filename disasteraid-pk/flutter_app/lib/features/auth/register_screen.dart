@@ -1,7 +1,7 @@
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/auth/auth_provider.dart';
+import '../../core/api/api_client.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -56,9 +56,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         password: _passwordController.text,
         role: _role,
       );
-      // Don't pop - AuthProvider.notifyListeners() triggers main.dart to show AppShell
+      if (mounted) {
+        Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+      }
     } catch (e) {
-      setState(() => _error = e.toString().replaceAll('Exception: ', ''));
+      if (mounted) {
+        setState(() => _error = e.toString()); // ApiException has clean message
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -139,13 +143,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: 24),
             Text('I am a', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
-           ..._roles.entries.map((entry) => Card(
+          ..._roles.entries.map((entry) => Card(
               margin: const EdgeInsets.only(bottom: 8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(
                   color: _role == entry.key
-                  ? Theme.of(context).colorScheme.primary
+                 ? Theme.of(context).colorScheme.primary
                     : Colors.grey[300]!,
                   width: _role == entry.key? 2 : 1,
                 ),
@@ -185,7 +189,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
               child: _loading
-               ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : const Text('Create Account', style: TextStyle(fontSize: 16)),
             ),
           ],

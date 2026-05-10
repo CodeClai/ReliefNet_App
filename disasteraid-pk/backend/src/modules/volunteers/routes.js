@@ -7,7 +7,7 @@ const upload = require('../../utils/upload');
 
 const volunteerSchema = Joi.object({
   ngo_id: Joi.number().integer().required(),
-  location: Joi.string().min(3).required(),
+  location: Joi.string().min(3),
   skills: Joi.array().items(Joi.string()).default([]),
   availability: Joi.string().valid('WEEKENDS', 'WEEKDAYS', 'FLEXIBLE').default('FLEXIBLE'),
 });
@@ -16,13 +16,12 @@ const volunteerSchema = Joi.object({
 router.post('/register', auth('volunteer'), async (req, res, next) => {
   try {
     const { error, value } = volunteerSchema.validate(req.body);
-    if (error) return res.status(400).json({ error: error.details[0].message });
+    if (error) return res.error(error.details[0].message, 400);
 
     const { ngo_id, location, skills, availability } = value;
 
-    // Check NGO exists and approved
     const ngo = await db.query('SELECT id FROM ngo_profiles WHERE id=$1 AND status=$2', [ngo_id, 'APPROVED']);
-    if (!ngo.rows[0]) return res.status(400).json({ error: 'NGO not found or not approved' });
+    if (!ngo.rows[0]) return res.error('NGO not found or not approved', 400);
 
     const result = await db.query(
       `INSERT INTO volunteer_profiles (user_id, ngo_id, location, skills, availability)
@@ -31,15 +30,15 @@ router.post('/register', auth('volunteer'), async (req, res, next) => {
        RETURNING *`,
       [req.user.id, ngo_id, location, skills, availability]
     );
-    res.json({ data: result.rows[0] });
+    res.success(result.rows[0], 201);
   } catch (e) { next(e); }
 });
 
-// GET /api/volunteers/tasks/available - Unassigned tasks for my NGO
+// GET /api/volunteers/tasks/available
 router.get('/tasks/available', auth('volunteer'), async (req, res, next) => {
   try {
     const vol = await db.query('SELECT * FROM volunteer_profiles WHERE user_id = $1', [req.user.id]);
-    if (!vol.rows[0]) return res.status(400).json({ error: 'Complete volunteer profile first' });
+    if (!vol.rows[0]) return res.error('Complete volunteer profile first', 400);
 
     const result = await db.query(`
       SELECT a.*, c.title as campaign_title, c.image_url,
@@ -53,20 +52,19 @@ router.get('/tasks/available', auth('volunteer'), async (req, res, next) => {
         a.created_at ASC
       LIMIT 50
     `, [vol.rows[0].ngo_id]);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-// POST /api/volunteers/tasks/:id/accept - Volunteer takes task with transaction
+// POST /api/volunteers/tasks/:id/accept
 router.post('/tasks/:id/accept', auth('volunteer'), async (req, res, next) => {
-  const client = await db.pool.connect();
+  const client = await db.connect();
   try {
     await client.query('BEGIN');
 
     const vol = await client.query('SELECT id, ngo_id FROM volunteer_profiles WHERE user_id = $1', [req.user.id]);
     if (!vol.rows[0]) throw new Error('Volunteer profile not found');
 
-    // Lock row to prevent race condition - two volunteers accepting same task
     const task = await client.query(
       `SELECT id, ngo_id, status FROM aid_requests WHERE id = $1 FOR UPDATE`,
       [req.params.id]
@@ -82,20 +80,20 @@ router.post('/tasks/:id/accept', auth('volunteer'), async (req, res, next) => {
     );
 
     await client.query('COMMIT');
-    res.json({ success: true, message: 'Task accepted' });
+    res.success({ message: 'Task accepted' });
   } catch (e) {
     await client.query('ROLLBACK');
-    res.status(400).json({ error: e.message });
+    next(e);
   } finally {
     client.release();
   }
 });
 
-// GET /api/volunteers/tasks/my - My assigned tasks
+// GET /api/volunteers/tasks/my
 router.get('/tasks/my', auth('volunteer'), async (req, res, next) => {
   try {
     const vol = await db.query('SELECT id FROM volunteer_profiles WHERE user_id = $1', [req.user.id]);
-    if (!vol.rows[0]) return res.json({ data: [] });
+    if (!vol.rows[0]) return res.success([]);
 
     const result = await db.query(`
       SELECT a.*, c.title as campaign_title, c.image_url,
@@ -106,20 +104,20 @@ router.get('/tasks/my', auth('volunteer'), async (req, res, next) => {
       WHERE a.volunteer_id = $1 AND a.status IN ('ASSIGNED', 'PICKED_UP', 'IN_TRANSIT')
       ORDER BY a.created_at DESC
     `, [vol.rows[0].id]);
-    res.json({ data: result.rows });
+    res.success(result.rows);
   } catch (e) { next(e); }
 });
 
-// PATCH /api/volunteers/tasks/:id/status - Update delivery status with proof
+// PATCH /api/volunteers/tasks/:id/status
 router.patch('/tasks/:id/status', auth('volunteer'), upload.single('proof'), async (req, res, next) => {
   try {
     const { status } = req.body;
     if (!['PICKED_UP', 'IN_TRANSIT', 'DELIVERED'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
+      return res.error('Invalid status', 400);
     }
 
     const vol = await db.query('SELECT id FROM volunteer_profiles WHERE user_id = $1', [req.user.id]);
-    if (!vol.rows[0]) return res.status(403).json({ error: 'Volunteer profile not found' });
+    if (!vol.rows[0]) return res.error('Volunteer profile not found', 403);
 
     const proof_url = req.file? req.file.path : req.body.proof_url;
 
@@ -133,9 +131,8 @@ router.patch('/tasks/:id/status', auth('volunteer'), upload.single('proof'), asy
       [status, proof_url, req.params.id, vol.rows[0].id]
     );
 
-    if (!result.rows[0]) return res.status(403).json({ error: 'Task not found or not assigned to you' });
+    if (!result.rows[0]) return res.error('Task not found or not assigned to you', 403);
 
-    // If delivered, increment volunteer completed_tasks
     if (status === 'DELIVERED') {
       await db.query(
         `UPDATE volunteer_profiles SET completed_tasks = completed_tasks + 1 WHERE id = $1`,
@@ -143,11 +140,11 @@ router.patch('/tasks/:id/status', auth('volunteer'), upload.single('proof'), asy
       );
     }
 
-    res.json({ success: true, data: result.rows[0] });
+    res.success(result.rows[0]);
   } catch (e) { next(e); }
 });
 
-// GET /api/volunteers/stats - My stats for leaderboard
+// GET /api/volunteers/stats
 router.get('/stats', auth('volunteer'), async (req, res, next) => {
   try {
     const vol = await db.query(`
@@ -161,7 +158,7 @@ router.get('/stats', auth('volunteer'), async (req, res, next) => {
       GROUP BY v.id, u.name
     `, [req.user.id]);
 
-    res.json({ data: vol.rows[0] || null });
+    res.success(vol.rows[0] || null);
   } catch (e) { next(e); }
 });
 

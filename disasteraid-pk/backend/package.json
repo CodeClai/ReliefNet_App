@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "seed": "node scripts/seed.js"
   },
   "dependencies": {
     "bcrypt": "^5.1.1",
@@ -16,9 +17,14 @@
     "helmet": "^8.1.0",
     "joi": "^17.11.0",
     "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.1",
     "multer": "^2.1.1",
     "multer-storage-cloudinary": "^4.0.0",
-    "pg": "^8.11.3"
+    "nodemailer": "^8.0.7",
+    "pdfkit": "^0.18.0",
+    "pg": "^8.11.3",
+    "socket.io": "^4.8.3",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

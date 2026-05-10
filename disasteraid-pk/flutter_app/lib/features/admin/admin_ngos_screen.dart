@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:dio/dio.dart';
+import 'package:shimmer/shimmer.dart';
 import '../../core/api/api_client.dart';
+import '../../../shared/widgets/empty_state.dart';
+import '../../../shared/widgets/error_state.dart';
 
 class AdminNgosScreen extends StatefulWidget {
   const AdminNgosScreen({super.key});
@@ -29,12 +31,13 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
       final res = await _api.dio.get('/admin/ngos', queryParameters: {
         if (_filter!= 'ALL') 'status': _filter,
       });
-      setState(() { _ngos = res.data['data']; _loading = false; });
-    } on DioException catch (e) {
-      setState(() {
-        _error = e.response?.data['error']?? 'Failed to load NGOs';
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() { _ngos = res.data as List; _loading = false; }); // ApiClient unwraps
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _error = e.message; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = 'Failed to load NGOs'; _loading = false; });
     }
   }
 
@@ -47,9 +50,8 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
         );
         _fetchNgos();
       }
-    } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Approval failed';
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.message);
     }
   }
 
@@ -65,9 +67,8 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
         );
         _fetchNgos();
       }
-    } on DioException catch (e) {
-      final msg = e.response?.data['error']?? 'Rejection failed';
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.message);
     }
   }
 
@@ -80,24 +81,27 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
         content: TextField(
           controller: controller,
           decoration: const InputDecoration(
-            labelText: 'Rejection Reason',
+            labelText: 'Rejection Reason *',
             hintText: 'Missing documents, invalid info...',
             border: OutlineInputBorder(),
           ),
           maxLines: 3,
+          textCapitalization: TextCapitalization.sentences,
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           FilledButton(
             onPressed: () {
               if (controller.text.trim().isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Reason required')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Reason required')),
+                );
                 return;
               }
               Navigator.pop(context, controller.text.trim());
             },
-            child: const Text('Reject'),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Reject'),
           ),
         ],
       ),
@@ -109,8 +113,12 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open document')));
+      if (mounted) _showError('Could not open document');
     }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Color _statusColor(String status) {
@@ -124,11 +132,15 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+
     return Column(
       children: [
+        // Filter Chips
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
             children: ['ALL', 'PENDING', 'APPROVED', 'REJECTED'].map((f) =>
               Padding(
@@ -143,162 +155,299 @@ class _AdminNgosScreenState extends State<AdminNgosScreen> {
           ),
         ),
         Expanded(
-          child: _loading
-        ? const Center(child: CircularProgressIndicator())
-            : _error!= null
-        ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.error_outline, size: 60, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text(_error!),
-                      const SizedBox(height: 16),
-                      FilledButton(onPressed: _fetchNgos, child: const Text('Retry')),
-                    ],
-                  ),
-                )
-            : _ngos.isEmpty
-        ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.inbox, size: 80, color: Colors.grey[400]),
-                      const SizedBox(height: 16),
-                      Text('No $_filter NGOs', style: const TextStyle(fontSize: 18)),
-                    ],
-                  ),
-                )
-                : RefreshIndicator(
-                    onRefresh: _fetchNgos,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _ngos.length,
-                      itemBuilder: (context, i) {
-                        final ngo = _ngos[i];
-                        final docs = List<String>.from(ngo['docs_url']?? []);
-                        final status = ngo['status']?? 'PENDING';
-
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: ExpansionTile(
-                            leading: CircleAvatar(
-                              backgroundColor: _statusColor(status).withOpacity(0.1),
-                              child: Icon(Icons.business, color: _statusColor(status)),
-                            ),
-                            title: Text(ngo['org_name']?? 'Unknown NGO', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Reg: ${ngo['registration_number']?? 'N/A'}'),
-                                Chip(
-                                  label: Text(status, style: const TextStyle(fontSize: 11)),
-                                  backgroundColor: _statusColor(status).withOpacity(0.1),
-                                  labelStyle: TextStyle(color: _statusColor(status)),
-                                  visualDensity: VisualDensity.compact,
-                                ),
-                              ],
-                            ),
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _infoRow('Contact Person', ngo['contact_person']),
-                                    _infoRow('Email', ngo['email']),
-                                    _infoRow('Phone', ngo['phone']),
-                                    const SizedBox(height: 12),
-                                    Text('Mission', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey[700])),
-                                    const SizedBox(height: 4),
-                                    Text(ngo['mission']?? 'No mission provided'),
-                                    const SizedBox(height: 16),
-                                    if (docs.isNotEmpty)...[
-                                      Text('Documents (${docs.length})', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                      const SizedBox(height: 8),
-                                  ...docs.map((url) => url.toLowerCase().contains('.pdf')
-                                       ? ListTile(
-                                              dense: true,
-                                              leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
-                                              title: Text(url.split('/').last, style: const TextStyle(fontSize: 12)),
-                                              trailing: const Icon(Icons.open_in_new, size: 18),
-                                              onTap: () => _openDoc(url),
-                                              contentPadding: EdgeInsets.zero,
-                                            )
-                                          : Padding(
-                                              padding: const EdgeInsets.symmetric(vertical: 4),
-                                              child: ClipRRect(
-                                                borderRadius: BorderRadius.circular(8),
-                                                child: InkWell(
-                                                  onTap: () => _openDoc(url),
-                                                  child: CachedNetworkImage(
-                                                    imageUrl: url,
-                                                    height: 120,
-                                                    width: double.infinity,
-                                                    fit: BoxFit.cover,
-                                                    placeholder: (c, u) => Container(
-                                                      height: 120,
-                                                      color: Colors.grey[200],
-                                                      child: const Center(child: CircularProgressIndicator()),
-                                                    ),
-                                                    errorWidget: (c, u, e) => Container(
-                                                      height: 120,
-                                                      color: Colors.grey[200],
-                                                      child: const Icon(Icons.error),
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            )),
-                                    ],
-                                    if (status == 'PENDING')...[
-                                      const SizedBox(height: 16),
-                                      Row(children: [
-                                        Expanded(
-                                          child: OutlinedButton.icon(
-                                            onPressed: () => _reject(ngo['id']),
-                                            icon: const Icon(Icons.close),
-                                            label: const Text('Reject'),
-                                            style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: FilledButton.icon(
-                                            onPressed: () => _approve(ngo['id']),
-                                            icon: const Icon(Icons.check),
-                                            label: const Text('Approve'),
-                                          ),
-                                        ),
-                                      ]),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: _buildBody(cs, tt),
+          ),
         ),
       ],
     );
   }
 
-  Widget _infoRow(String label, String? value) {
+  Widget _buildBody(ColorScheme cs, TextTheme tt) {
+    if (_loading) return _buildShimmer();
+    if (_error!= null) return ErrorState(message: _error!, onRetry: _fetchNgos);
+    if (_ngos.isEmpty) return _buildEmptyState(cs, tt);
+    return _buildNgoList(cs, tt);
+  }
+
+  Widget _buildShimmer() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 4,
+      itemBuilder: (_, __) => Shimmer.fromColors(
+        baseColor: Colors.grey[300]!,
+        highlightColor: Colors.grey[100]!,
+        child: Container(
+          height: 120,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(ColorScheme cs, TextTheme tt) {
+    return EmptyState(
+      icon: Icons.business_outlined,
+      title: 'No $_filter NGOs',
+      subtitle: _filter == 'PENDING'
+     ? 'New NGO applications will appear here'
+        : 'No NGOs found with this status',
+    );
+  }
+
+  Widget _buildNgoList(ColorScheme cs, TextTheme tt) {
+    return RefreshIndicator(
+      onRefresh: _fetchNgos,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _ngos.length,
+        itemBuilder: (context, i) {
+          final ngo = _ngos[i];
+          final docs = List<String>.from(ngo['docs_url']?? []);
+          final status = ngo['status']?? 'PENDING';
+          final statusColor = _statusColor(status);
+
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: cs.outlineVariant),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                // Status Bar
+                Container(height: 4, color: statusColor),
+                ExpansionTile(
+                  leading: CircleAvatar(
+                    backgroundColor: statusColor.withOpacity(0.15),
+                    child: Icon(Icons.business_outlined, color: statusColor),
+                  ),
+                  title: Text(
+                    ngo['org_name']?? 'Unknown NGO',
+                    style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 4),
+                      Text(
+                        'Reg: ${ngo['registration_number']?? 'N/A'}',
+                        style: tt.bodySmall,
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          status,
+                          style: tt.labelSmall?.copyWith(
+                            color: statusColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Divider(height: 1),
+                          const SizedBox(height: 16),
+
+                          // Info Rows
+                          _infoRow(Icons.person_outline, 'Contact Person', ngo['contact_person'], cs, tt),
+                          const SizedBox(height: 12),
+                          _infoRow(Icons.email_outlined, 'Email', ngo['email'], cs, tt),
+                          const SizedBox(height: 12),
+                          _infoRow(Icons.phone_outlined, 'Phone', ngo['phone'], cs, tt),
+                          const SizedBox(height: 16),
+
+                          // Mission
+                          Text(
+                            'Mission',
+                            style: tt.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: cs.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: cs.surfaceVariant,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              ngo['mission']?? 'No mission provided',
+                              style: tt.bodyMedium,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Documents
+                          if (docs.isNotEmpty)...[
+                            Row(
+                              children: [
+                                Icon(Icons.attach_file, size: 20, color: cs.onSurfaceVariant),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Documents (${docs.length})',
+                                  style: tt.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                         ...docs.map((url) => _buildDocItem(url, cs, tt)),
+                          ],
+
+                          // Actions
+                          if (status == 'PENDING')...[
+                            const SizedBox(height: 16),
+                            Row(children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _reject(ngo['id']),
+                                  icon: const Icon(Icons.close),
+                                  label: const Text('Reject'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.all(12),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton.icon(
+                                  onPressed: () => _approve(ngo['id']),
+                                  icon: const Icon(Icons.check),
+                                  label: const Text('Approve'),
+                                  style: FilledButton.styleFrom(
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                    padding: const EdgeInsets.all(12),
+                                  ),
+                                ),
+                              ),
+                            ]),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildDocItem(String url, ColorScheme cs, TextTheme tt) {
+    final isPdf = url.toLowerCase().contains('.pdf');
+    final fileName = url.split('/').last;
+
+    if (isPdf) {
+      return Card(
+        margin: const EdgeInsets.only(bottom: 8),
+        elevation: 0,
+        color: cs.surfaceVariant,
+        child: ListTile(
+          dense: true,
+          leading: const Icon(Icons.picture_as_pdf, color: Colors.red),
+          title: Text(
+            fileName,
+            style: tt.bodySmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.open_in_new, size: 18),
+          onTap: () => _openDoc(url),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 120,
-            child: Text('$label:', style: TextStyle(color: Colors.grey[700], fontWeight: FontWeight.w500)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: () => _openDoc(url),
+          child: Stack(
+            children: [
+              CachedNetworkImage(
+                imageUrl: url,
+                height: 160,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                placeholder: (c, u) => Container(
+                  height: 160,
+                  color: cs.surfaceVariant,
+                  child: const Center(child: CircularProgressIndicator()),
+                ),
+                errorWidget: (c, u, e) => Container(
+                  height: 160,
+                  color: cs.surfaceVariant,
+                  child: Icon(Icons.error_outline, color: cs.onSurfaceVariant),
+                ),
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(Icons.open_in_new, color: Colors.white, size: 16),
+                ),
+              ),
+            ],
           ),
-          Expanded(child: Text(value?? 'N/A')),
-        ],
+        ),
       ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String? value, ColorScheme cs, TextTheme tt) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: cs.onSurfaceVariant),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value?? 'N/A',
+                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
